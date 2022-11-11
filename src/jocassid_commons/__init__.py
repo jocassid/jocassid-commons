@@ -1,3 +1,3 @@
 
-__all__ = ['example']
+__all__ = ['json']
 
