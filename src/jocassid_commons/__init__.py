@@ -1,3 +1,6 @@
 
-__all__ = ['json']
+__all__ = [
+    'json',
+    'dirf',
+]
 
