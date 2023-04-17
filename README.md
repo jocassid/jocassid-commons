@@ -25,3 +25,6 @@ while retaining the sort order.
 
 ### 0.0.4
 * Added `dirf` module
+
+### 0.0.6
+* Added `data_structures` module

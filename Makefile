@@ -17,5 +17,5 @@ test:
 	pytest
 
 clean:
-	rm dist/*.whl
-	rm dist/*.tar.gz
+	rm -f dist/*.whl
+	rm -f dist/*.tar.gz
