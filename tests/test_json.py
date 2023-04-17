@@ -77,7 +77,7 @@ def test_json_get_with_lists():
     assert json_get([2, 2], 42, 2) == 42
     
     # 2nd level is list
-    assert json_get({'foo':[2,4,9]}, 42, 'foo', 1) == 4 
+    assert json_get({'foo': [2, 4, 9]}, 42, 'foo', 1) == 4
     
     # 3 levels of lists
     data = [
