@@ -26,4 +26,3 @@ class TestDirf:
     def test_startswith(self):
         expected = ['title', 'translate']
         assert expected == dirf(dir('a'), 't', starts_with=True)
-

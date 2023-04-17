@@ -71,7 +71,7 @@ def test_setitem():
     }
 
     d1['c'] = [4, 5]
-    assert d1  == {
+    assert d1 == {
         'a': [1, 2],
         'b': [3],
         'c': [4, 5]
