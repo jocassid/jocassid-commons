@@ -28,3 +28,6 @@ while retaining the sort order.
 
 ### 0.0.6
 * Added `data_structures` module
+
+### 0.0.7
+* Added `string` module with normalize_whitespace function
