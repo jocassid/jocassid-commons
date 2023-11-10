@@ -1,40 +1,38 @@
 
+from re import compile as re_compile
+from traceback import walk_stack
 
-def dirf(symbols, pattern='', starts_with=False, ignore_case=True):
+
+def dirf(obj, pattern='', starts_with=False, ignore_case=True):
     """
-    :param symbols:
+    :param obj:
     :param pattern:
     :param starts_with:
     :param ignore_case:
     """
+    if pattern:
+        symbols = dir(obj)
+    else:
+        pattern = obj
+        symbols = []
+        # regex to filter out @py_assertN symbols added by pytest
+        py_assert_regex = re_compile(r'@py_assert\d+')
+        for frame, _ in walk_stack(None):
+            for symbol in sorted(frame.f_locals.keys()):
+                if py_assert_regex.fullmatch(symbol):
+                    continue
+                symbols.append(symbol)
+            break
 
-    if ignore_case:
-        pattern = pattern.lower()
-
-    def as_is(a_symbol):
-        return a_symbol
-
-    def to_lower(a_symbol):
-        return a_symbol.lower()
-
-    def contains(a_symbol, a_pattern):
-        return a_pattern in a_symbol
-
-    def startswith(a_symbol, a_pattern):
-        return a_symbol.startswith(a_pattern)
-
-    transform_func = as_is
-    filter_func = contains
-
-    if ignore_case:
-        transform_func = to_lower
-
-    if starts_with:
-        filter_func = startswith
+    compare_pattern = pattern.lower() if ignore_case else pattern
 
     filtered = []
     for symbol in symbols:
-        symbol = transform_func(symbol)
-        if filter_func(symbol, pattern):
+        compare_symbol = symbol.lower() if ignore_case else symbol
+        if starts_with:
+            if compare_symbol.startswith(compare_pattern):
+                filtered.append(symbol)
+            continue
+        if compare_pattern in compare_symbol:
             filtered.append(symbol)
     return filtered

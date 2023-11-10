@@ -1,6 +1,9 @@
 
+from re import compile as re_compile
 
-from jocassid_commons.json import json_get
+from pytest import raises
+
+from jocassid_commons.json import json_get, locate_key
 
 
 def test_json_get():
@@ -92,4 +95,78 @@ def test_json_get_with_lists():
         ],
     ]
     assert json_get(data, 42, 1, 2, 3) == 21
+
+
+def test_locate_key():
+
+    sample_list = [
+        {
+            'type': 'album',
+            'title': 'Automatic for the People',
+            'tracks': [
+                {'title': 'Drive'},
+                {'title': 'Everybody Hurts'},
+            ]
+        }
+    ]
+
+    sample_dict = {
+        'music': sample_list,
+        5: 'non-string key',
+        6: {
+            'half-dozen': 'quantity',
+            'hexagon': 'polygon',
+            'type': None,
+        },
+        'audiobooks': {
+            'fiction': None,
+        },
+        'video': {
+            'movies': [
+                {'title': 'This Film Is On'},
+            ],
+            'tv_series': [],
+        }
+    }
+
+    actual = list(locate_key(sample_dict, re_compile('music')))
+    assert ['/music'] == actual
+
+    with raises(ValueError) as exec_info:
+        list(locate_key(5, re_compile('foo')))
+    expected = "<class 'int'> 5 is invalid type for locate key.  It should be dict or list"
+    assert expected == str(exec_info.value)
+
+    actual = list(locate_key(sample_dict, re_compile('movies')))
+    assert ['/video/movies'] == actual
+
+    actual = list(locate_key([], re_compile('music')))
+    assert [] == actual
+
+    actual = list(locate_key(sample_list, re_compile('type')))
+    assert ['/0/type'] == actual
+
+    expected = [
+        '/0/title',
+        '/0/tracks/0/title',
+        '/0/tracks/1/title',
+    ]
+    actual = list(locate_key(sample_list, re_compile('title')))
+    assert expected == actual
+
+    expected = [
+        '/music/0/title',
+        '/music/0/tracks/0/title',
+        '/music/0/tracks/1/title',
+        '/video/movies/0/title',
+    ]
+    actual = list(locate_key(sample_dict, re_compile('title')))
+    assert expected == actual
+
+
+
+
+
+
+
 

@@ -17,8 +17,9 @@ while retaining the sort order.
 * Contains the `dirf` function a wrapper around the built-in `dir` function that adds filtering capabilities.
 
 ### `json`
-* Contains the `json_get` method for extracting data from within
+* `json_get` function for extracting data from within
   nested lists and dicts such as those returned from a JSON api.
+* `locate_key` function for searching through JSON for a dict key matching a regular expression
 
   
 ## Changelog
@@ -31,3 +32,7 @@ while retaining the sort order.
 
 ### 0.0.7
 * Added `string` module with normalize_whitespace function
+
+### 0.0.8
+* Added `json.locate_key` function
+* Got `dirf.dirf` working.
