@@ -3,7 +3,11 @@ from re import compile as re_compile
 
 from pytest import raises
 
-from jocassid_commons.json import json_get, locate_key
+from jocassid_commons.json import (
+    json_format,
+    json_get,
+    locate_key,
+)
 
 
 def test_json_get():

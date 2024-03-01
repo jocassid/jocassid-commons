@@ -5,11 +5,11 @@ from jocassid_commons.dirf import dirf
 class Thingy:
 
     @staticmethod
-    def foo_bar(self):
+    def foo_bar():
         pass
 
     @staticmethod
-    def foo_Bar(self):
+    def foo_Bar():
         pass
 
 
