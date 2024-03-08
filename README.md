@@ -21,11 +21,13 @@ while retaining the sort order.
   nested lists and dicts such as those returned from a JSON api.
 * `locate_key` function for searching through JSON for a dict key matching a regular expression
 
-  
 ## Changelog
 
 ### 0.0.4
 * Added `dirf` module
+* 
+### 0.0.5
+* Added `accumulator_dict` module.
 
 ### 0.0.6
 * Added `data_structures` module

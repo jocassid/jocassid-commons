@@ -101,6 +101,32 @@ def test_json_get_with_lists():
     assert json_get(data, 42, 1, 2, 3) == 21
 
 
+def test_json_format():
+
+    json = {}
+    assert ['{}'] == list(json_format(json))
+
+    json = []
+    assert ['[]'] == list(json_format(json))
+
+    json = [3, 1]
+    expected = ['[', ' 3,', ' 1,', ']']
+    assert expected == list(json_format(json))
+
+    json = {'foo': 'bar'}
+    expected = [
+        '{',
+        ' "foo": "bar"',
+        '}',
+    ]
+    assert expected == list(json_format(json))
+
+
+def test_json_diff():
+    assert False
+
+
+
 def test_locate_key():
 
     sample_list = [
