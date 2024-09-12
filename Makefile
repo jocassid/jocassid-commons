@@ -18,4 +18,4 @@ test:
 
 clean:
 	rm -f dist/*.whl
-	rm -f dist/*.tar.gz
+	rm -f disspecified number of levelst/*.tar.gz

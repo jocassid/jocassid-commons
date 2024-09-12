@@ -1,0 +1,17 @@
+digraph JsonDiff{
+  node [shape="rectangle"];
+  label="JsonDiff";
+  subgraph cluster_json{
+    label="json";
+    subgraph cluster_JsonDiff{
+      label="JsonDiff"
+      run -> compare_dicts;
+      compare_dicts -> get_column_format [label="1"];
+      compare_dicts -> show_values [label="2"];
+      show_values -> fit_value_in_column;
+      value_width -> is_composite_type;
+      get_column_format -> value_width [label="1"];
+      get_column_format -> adjust_column_widths [label="2"];
+    }
+  }
+}

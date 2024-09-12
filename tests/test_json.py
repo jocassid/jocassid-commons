@@ -6,6 +6,7 @@ from pytest import raises
 from jocassid_commons.json import (
     json_diff,
     json_get,
+    JsonDiff,
     locate_key,
 )
 
@@ -168,23 +169,140 @@ def test_locate_key():
     assert expected == actual
 
 
-def test_json_diff():
+class TestJsonDiff:
 
-    json1 = {'a': 'alpha', 'b': 'bravo'}
-    json2 = {'b': 'beta', 'c': 'charlie'}
+    def test_diffs_only_false_values_short_strings(self):
+        json1 = {'a': 'alpha', 'b': 'bravo', 'd': 'delta'}
+        json2 = {'b': 'beta', 'c': 'charlie', 'd': 'delta'}
 
-    expected_lines = [
-        "'a'           'alpha'                   ",
-        "'b'           'bravo'       'beta'      ",
-        "'c'                         'charlie'   ",
-    ]
-    actual_lines = list(
-        json_diff(json1, json2, max_width=40)
-    )
-    assert expected_lines == actual_lines
+        expected_lines = [
+            "'a'  'alpha'           ",
+            "'b'  'bravo'  'beta'   ",
+            "'c'           'charlie'",
+            "'d'  'delta'  'delta'  ",
+        ]
+        actual_lines = list(
+            json_diff(json1, json2, max_width=40)
+        )
+        assert expected_lines == actual_lines
 
+    def test_diffs_only_true_values_short_strings(self):
+        json1 = {'a': 'alpha', 'b': 'bravo', 'd': 'delta'}
+        json2 = {'b': 'beta', 'c': 'charlie', 'd': 'delta'}
 
+        expected_lines = [
+            "'a'  'alpha'           ",
+            "'b'  'bravo'  'beta'   ",
+            "'c'           'charlie'",
+        ]
+        actual_lines = list(
+            json_diff(json1, json2, max_width=40, diff_only=True)
+        )
+        assert expected_lines == actual_lines
 
+    @staticmethod
+    def build_json_with_long_keys_and_values():
+        json1 = {
+            'a_really_long_key_that_will_not_fit_in_column': 'alpha',
+            'b': 'The first value is also quite long in this item',
+        }
+        json2 = {
+            'b': "Just to make things interesting, the second value is lengthy"
+        }
+        return json1, json2
 
+    def test_value_does_not_fit_column_width(self):
 
+        json1, json2 = self.build_json_with_long_keys_and_values()
 
+        expected_lines = [
+            "'a ...  'alpha'                        ",
+            "'b'     'The ...  'Just to make thi ...",
+        ]
+        actual_lines = list(
+            json_diff(json1, json2, max_width=40)
+        )
+        assert expected_lines == actual_lines
+
+    def test_value_width(self):
+        diff = JsonDiff()
+        assert 5 == diff.value_width('foo')
+        assert 4 == diff.value_width(1234)
+        assert 5 == diff.value_width([1, 2])
+        assert 5 == diff.value_width({'foo': 'bar'})
+
+    def test_adjust_column_widths(self):
+
+        key_width_out, value1_width_out, value2_width_out = \
+            JsonDiff.adjust_column_widths(
+                key_width=20,
+                value1_width=20,
+                value2_width=20,
+                column_separator='  ',
+                max_width=80
+            )
+
+        assert 20 == key_width_out
+        assert 20 == value1_width_out
+        assert 20 == value2_width_out
+
+        key_width_out, value1_width_out, value2_width_out = \
+            JsonDiff.adjust_column_widths(
+                key_width=30,
+                value1_width=30,
+                value2_width=30,
+                column_separator='  ',
+                max_width=80,
+            )
+
+        assert 25 == key_width_out
+        assert 25 == value1_width_out
+        assert 25 == value2_width_out
+
+    def test_fit_value_in_column(self):
+        value_out = JsonDiff.fit_value_in_column(
+            'a_really_long_key_that_will_not_fit_in_column',
+            6
+        )
+        assert value_out == "'a ..."
+
+    def test_show_values__diffs_only_keys_on_both_sides_values_match(self):
+        diff = JsonDiff(diff_only=True)
+        actual = list(
+            diff.show_values(
+                'key1',
+                'value1',
+                'value1',
+                JsonDiff.KeySide.BOTH,
+                JsonDiff.ColumnFormat(
+                    indent=2,
+                    key_width=10,
+                    value1_width=20,
+                    value2_width=20,
+                ),
+            )
+        )
+        assert actual == []
+
+    def test_json_diff__dict_within_dict(self):
+        json1 = {
+            'a': 'alpha',
+            'c': {
+                'a2': 'apple',
+                'c2': 'carrot',
+            }
+        }
+        json2 = {
+            'b': 'bravo',
+            'c': {
+                'b2': 'bananas',
+                'c2': 'celery',
+            }
+        }
+
+        actual = list(json_diff(json1, json2, max_width=40))
+        assert actual[0] == "'a'  'alpha'         "
+        assert actual[1] == "'b'           'bravo'"
+        assert actual[2] == "'c'  {        {      "
+        assert actual[3] == "  'a2'  'apple'      "
+        assert actual[4] == "  'b2'  'bananas'   "
