@@ -2,10 +2,11 @@
 from bisect import bisect_left
 from collections import deque
 from collections.abc import Iterator as ABCIterator
-from typing import \
-    Any, Callable, Deque, Dict, Iterable, \
-    Iterator, List, Optional, Sequence, Tuple, \
-    TypeVar, Union
+from typing import (
+    Any, Callable, Deque,
+    Iterable, Iterator, Sequence,
+    Tuple, TypeVar, Union
+)
 
 
 T = TypeVar('T')

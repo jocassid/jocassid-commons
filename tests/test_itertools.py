@@ -4,7 +4,7 @@ from typing import List
 
 from pytest import raises
 
-from jocassid_commons.data_structures import (
+from jocassid_commons.itertools import (
     merge_queue_factory,
     MergeSourceContainer,
     min_value_and_index,
