@@ -1,11 +1,18 @@
 
+from bisect import bisect_left
+from collections import deque
+from collections.abc import Iterator as ABCIterator
 from typing import \
-    Any, Callable, Iterable, \
-    Iterator, List, Sequence, Tuple, \
+    Any, Callable, Deque, Dict, Iterable, \
+    Iterator, List, Optional, Sequence, Tuple, \
     TypeVar, Union
 
 
 T = TypeVar('T')
+
+IterableOrIterator = Union[Iterable[T], Iterator[T]]
+
+KeyFunction = Callable[[T], T]
 
 
 def min_value_and_index(
@@ -40,103 +47,131 @@ def min_value_and_index(
     return min_value, min_index
 
 
-class MergeQueue:
+class MergeSourceContainer(ABCIterator):
+    """This might be moved inside the MergeQueue class"""
 
-    def __init__(
-            self,
-            iterables_or_iterators: Sequence[Union[Iterable, Iterator]],
-            is_sorted: bool = True,
-            key_functions: List[Callable[[Any], Any]] = None,
-    ):
-        self.iterators: List[Iterator] = []
-        for item in iterables_or_iterators:
-            if hasattr(item, '__next__'):
-                self.iterators.append(item)
-            else:
-                # This will raise a TypeError if item isn't Iterable
-                self.iterators.append(iter(item))
+    def __init__(self, source: IterableOrIterator, key=None):
+        self.source: Iterator[T] = iter(source)
+        self.next_value: T = next(self.source)
+        self.reached_end: bool = False
+        self.key = key
 
-        self.iterator_index = 0
-        self.sorted = is_sorted
-        self.next_values = None
-
-        if not is_sorted:
-            if key_functions:
-                raise ValueError(
-                    f'Key functions may only be used when the '
-                    f'{self.__class__.__name__} is sorted'
-                )
-            self.key_functions = None
-            return
-
-        self.next_values = self.init_next_values(self.iterators)
-
-        if not key_functions:
-            self.key_functions = None
-            return
-
-        if len(key_functions) not in (1, len(iterables_or_iterators)):
+    def __lt__(self, rhs):
+        if not isinstance(rhs, MergeSourceContainer):
             raise ValueError(
-                f"Invalid number of key functions.  There should be 1 or "
-                f"{len(iterables_or_iterators)} key functions",
+                f"< between a {type(self)} and a {type(rhs)} not supported"
             )
-        self.key_functions = key_functions
-
-    @staticmethod
-    def init_next_values(iterators: List[Iterator]) -> List[Any]:
-        next_values = []
-        i = 0
-        while i < len(iterators):
-            iterator = iterators[i]
-            try:
-                value = next(iterator)
-            except StopIteration:
-                iterators.pop(i)
-            else:
-                i += 1
-                next_values.append(value)
-        return next_values
+        key = self.key
+        if key:
+            return key(self.next_value) < key(rhs.next_value)
+        return self.next_value < rhs.next_value
 
     def __iter__(self):
         return self
 
     def __next__(self):
-        if not self.iterators:
-            raise StopIteration
-        if self.sorted:
-            return self.sorted_next()
-        return self.unsorted_next()
+        output_value = self.next_value
+        try:
+            self.next_value = next(self.source)
+        except StopIteration as error:
+            if self.reached_end:
+                raise error
+            else:
+                self.reached_end = True
+        return output_value
 
-    def sorted_next(self):
-        if not self.iterators:
-            raise StopIteration
 
-        min_value, min_index = min_value_and_index(
-            self.next_values,
-            self.key_functions,
+class MergeQueue(ABCIterator):
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        raise NotImplementedError("Subclasses should Implement")
+
+
+class UnsortedMergeQueue(MergeQueue):
+
+    """This object is similar to itertools.chain in that it generates a
+    sequence of values from multiple iterables (or iterators).  Unlike chain,
+    which returns all items from an iterable before moving to the next
+    iterable, MergeQueue cycles through the iterables until all the iterables
+    are exhausted.
+
+    If the iterables are sorted, and you wish to retain the sort order
+    set is_sorted to True.  This will cause the MergeQueue to look at the
+    next value for each iterable and return the lowest (unless the reverse
+    flag is set).  There is also a key argument similar to that for the
+    built-in sorted."""
+
+    def __init__(self, sources: Sequence[IterableOrIterator]):
+        self.source_containers: Deque[IterableOrIterator] = deque(
+            MergeSourceContainer(s) for s in sources
         )
-        iterator = self.iterators[min_index]
-        try:
-            self.next_values[min_index] = next(iterator)
-        except StopIteration:
-            self.next_values.pop(min_index)
-            self.iterators.pop(min_index)
-            if len(self.key_functions) > 1:
-                self.key_functions.pop(min_index)
-        finally:
-            return min_value
+        print(f"In __init__ {type(self.source_containers)=}")
 
-    def unsorted_next(self):
-        if not self.iterators:
-            raise StopIteration
-        if self.iterator_index >= len(self.iterators):
-            self.iterator_index = 0
-        iterator = self.iterators[self.iterator_index]
+    def __next__(self):
+        print(f"In __next__ {type(self.source_containers)=}")
+        container = self.source_containers.popleft()
         try:
-            next_value = next(iterator)
-        except StopIteration:
-            self.iterators.pop(self.iterator_index)
-            return self.unsorted_next()
+            value = next(container)
+        except StopIteration as error:
+            if len(self.source_containers) == 0:
+                raise error
+            return self.__next__()
         else:
-            self.iterator_index += 1
-            return next_value
+            self.source_containers.append(container)
+            return value
+
+
+class SortedMergeQueue(MergeQueue):
+
+    def __init__(
+            self,
+            sources: Sequence[IterableOrIterator],
+            key=None,
+    ):
+        self.sources = []
+        for source in sources:
+            try:
+                node = MergeSourceContainer(source, key)
+            except StopIteration:
+                continue
+            else:
+                self.sources.insert(
+                    bisect_left(self.sources, node),
+                    node
+                )
+
+    def __next__(self):
+        while self.sources:
+            node = self.sources.pop(0)
+
+            try:
+                next_value = next(node)
+            except StopIteration:
+                # This node is exhausted see if next node has a next value
+                continue
+            else:
+                self.sources.insert(
+                    bisect_left(self.sources, node),
+                    node,
+                )
+                return next_value
+
+        # All sources have been exhausted and removed from list
+        raise StopIteration()
+
+
+def merge_queue_factory(
+        sources: Sequence[IterableOrIterator],
+        is_sorted: bool = True,
+        key=None,
+):
+    if is_sorted:
+        return SortedMergeQueue(sources, key)
+    if key:
+        raise ValueError(
+            "Key function provided but unsorted MegeQueue requested"
+        )
+    return UnsortedMergeQueue(sources)
