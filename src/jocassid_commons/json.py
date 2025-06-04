@@ -59,7 +59,7 @@ def locate_key(collection, pattern, path_prefix='/'):
 
 JsonType = Union[dict, list]
 
-MISSING_VALUE = ''
+MISSING_VALUE = 'MISSING_VALUE'
 
 
 class DiffKeyValue:
@@ -72,16 +72,52 @@ class DiffKeyValue:
 
 class DiffRow:
 
-    def __init__(self, diff_value, key_value1=None, key_value2=None):
+    def __init__(
+            self,
+            diff_value: str,
+            key1=MISSING_VALUE,
+            value1=MISSING_VALUE,
+            key2=MISSING_VALUE,
+            value2=MISSING_VALUE,
+    ):
+        self.validate_params(key1, value1)
+        self.validate_params(key2, value2)
+
         self.diff_value = diff_value
+        self.key1 = key1
+        self.value1 = value1
+        self.key2 = key2
+        self.value2 = value2
 
     @staticmethod
-    def unpack(left_key_value, right_key_value):
+    def validate_params(key, value):
+        total = sum([
+            1 if key is MISSING_VALUE else 0,
+            1 if value is MISSING_VALUE else 0,
+        ])
+        if total != 1:
+            return
+        raise ValueError(
+            "key and value must be both missing value or "
+            "neither missing value"
+        )
+
+    @staticmethod
+    def unpack(left_key_value: DiffKeyValue, right_key_value: DiffKeyValue):
         return (
             left_key_value.key,
             left_key_value.value,
             right_key_value.key,
             right_key_value.value
+        )
+
+    def __str__(self):
+        return "diff_value={} key1={} value1={} key2={} value2={}".format(
+            self.diff_value,
+            self.key1,
+            self.value1,
+            self.key2,
+            self.value2,
         )
 
 
@@ -160,15 +196,48 @@ class JsonDiff:
         if same_type:
             yield start1
 
-            for stuff in self.get_row_data(json1, json2):
-                print(stuff)
+            if type1 == list:
+                format_params1 = self.get_list_format_params(json1)
+                format_params2 = self.get_list_format_params(json2)
+            else:
+                format_params1 = self.get_dict_format_params(json1)
+                format_params1 = self.get_dict_format_params(json2)
 
-
+            for diff_row in self.get_row_data(json1, json2):
+                print(diff_row)
 
             yield end1
 
+    def get_list_format_params(self, json_list):
+        key_length = int(
+            log10(
+                len(json_list)
+            )
+        ) + 1
 
-    def get_row_data(self, json1, json2):
+        value_length = max(
+            self.repr_length(i) for i in json_list
+        )
+
+        return key_length, value_length
+
+    def get_dict_format_params(self, json_dict):
+        key_length = 0
+        value_length = 0
+        for key, value in json_dict.items():
+            key_length = max(key_length, self.repr_length(key))
+            value_length = max(value_length, self.repr_length(value))
+        return key_length, value_length
+
+    @staticmethod
+    def repr_length(item) -> int:
+        if item is MISSING_VALUE:
+            return 0
+        if isinstance(item, list) or isinstance(item, dict):
+            return 1
+        return len(repr(item))
+
+    def get_row_data(self, json1, json2) -> Iterator[DiffRow]:
         keys_and_values1 = self.get_keys_and_values_from_container(json1)
         keys_and_values2 = self.get_keys_and_values_from_container(json2)
 
@@ -181,24 +250,23 @@ class JsonDiff:
                 next_key_value2,
             )
             if key1 < key2:
-                # TODO: yield DiffRow instead of tuple
-                yield '<', key1, value1, None, None
+                yield DiffRow('<', key1, value1)
                 next_key_value1 = self.get_next_key_and_value(
                     keys_and_values1,
                 )
                 continue
 
             if key1 > key2:
-                yield '>', None, None, key2, value2
+                yield DiffRow('>', key2=key2, value2=value2)
                 next_key_value2 = self.get_next_key_and_value(
                     keys_and_values2
                 )
                 continue
 
             if value1 == value2:
-                yield ' ', key1, value1, key2, value2
+                yield DiffRow(' ', key1, value1, key2, value2)
             else:
-                yield 'X', key1, value1, key2, value2
+                yield DiffRow('X', key1, value1, key2, value2)
 
             next_key_value1 = self.get_next_key_and_value(
                 keys_and_values1,

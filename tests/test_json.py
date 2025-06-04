@@ -9,6 +9,7 @@ from jocassid_commons.json import (
     json_get,
     JsonDiff,
     locate_key,
+    MISSING_VALUE,
 )
 
 
@@ -192,6 +193,17 @@ class TestJsonDiff:
     #         "'delta'": '2.5',
     #     }
     #     assert expected == dict_out
+
+    def test_repr_length(self):
+        assert JsonDiff.repr_length(MISSING_VALUE) == 0
+        assert JsonDiff.repr_length("foo") == 5
+        assert JsonDiff.repr_length("") == 2
+        assert JsonDiff.repr_length(183) == 3
+        assert JsonDiff.repr_length(123.0625) == 8
+        assert JsonDiff.repr_length([]) == 1
+        assert JsonDiff.repr_length({}) == 1
+        assert JsonDiff.repr_length(None) == 4
+        assert JsonDiff.repr_length(False) == 5
 
     def test_diffs_only_false_values_short_strings(self):
         json1 = {'a': 'alpha', 'b': 'bravo', 'd': 'delta'}
