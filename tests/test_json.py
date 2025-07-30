@@ -232,7 +232,6 @@ class TestJsonDiff:
                 print(message)
                 raise error
 
-
     def test_diffs_only_true_values_short_strings(self):
         json1 = {'a': 'alpha', 'b': 'bravo', 'd': 'delta'}
         json2 = {'b': 'beta', 'c': 'charlie', 'd': 'delta'}
@@ -247,7 +246,12 @@ class TestJsonDiff:
         actual_lines = list(
             json_diff(json1, json2, max_width=40, diff_only=True)
         )
-        assert expected_lines == actual_lines
+        for i, expected_and_actual in enumerate(
+                zip_longest(expected_lines, actual_lines, fillvalue=None),
+                start=1,
+        ):
+            expected, actual = expected_and_actual
+            assert expected == actual, f"error in line {i}"
 
     @staticmethod
     def build_json_with_long_keys_and_values():
@@ -289,7 +293,12 @@ class TestJsonDiff:
         actual_lines = list(
             json_diff(list1, list2)
         )
-        assert expected_lines == actual_lines
+        for i, expected_and_actual in enumerate(
+                zip_longest(expected_lines, actual_lines, fillvalue=None),
+                start=1,
+        ):
+            expected, actual = expected_and_actual
+            assert expected == actual, f"error in line {i}"
 
 
 

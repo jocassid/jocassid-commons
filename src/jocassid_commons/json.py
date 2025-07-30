@@ -59,6 +59,11 @@ def locate_key(collection, pattern, path_prefix='/'):
 
 JsonType = Union[dict, list]
 
+FormatParams = namedtuple(
+    'FormatParams',
+    ['key_length', 'value_length']
+)
+
 MISSING_VALUE = 'MISSING_VALUE'
 
 
@@ -131,11 +136,11 @@ class JsonDiff:
                 '<' only in left
                 '>' only in right
                 'X' values don't match
-    C       1 space
+    C       COLUMN_SPACING
     D       key/index
-    E       2 spaces
+    E       COLUMN_SPACING
     F       left value
-    G       2 spaces
+    G       COLUMN_SPACING
     H       right value
 
     Columns outermost level and keys (type different)
@@ -143,12 +148,23 @@ class JsonDiff:
     A       Indent
     B       Diff value or container1/container2 start/end
             ' ' same
-            '<' only in left
+            '<' only in left (it's possible for dicts to have int keys)
             '>' only in right
             'X' values don't match
+    C       COLUMN_SPACING
+    D       left key/index
+    E       COLUMN_SPACING
+    F       left value
+    G       COLUMN_SPACING
+    H       right key/index
+    I       COLUMN_SPACING
+    J       right value
 
 
     """
+
+    INDENT_WIDTH = 2
+    COLUMN_SPACING = 2
 
     def run(
             self,
@@ -173,9 +189,15 @@ class JsonDiff:
             json1 = json_get(json1, MISSING_VALUE, *keys)
             json2 = json_get(json2, MISSING_VALUE, *keys)
 
-        yield from self.render_container_diff(json1, json2)
+        yield from self.render_container_diff(json1, json2, max_width)
 
-    def render_container_diff(self, json1, json2):
+    def render_container_diff(
+            self,
+            json1: JsonType,
+            json2: JsonType,
+            max_width: int,
+            indent_level: int = 0,
+    ):
         type1 = self.get_container_type(json1)
         type2 = self.get_container_type(json2)
 
@@ -184,10 +206,8 @@ class JsonDiff:
 
         if type1 == type2:
             same_type = True
-            if type1 == list:
-                start1, start2, end1, end2 = '[]  '
-            else:
-                start1, end1, start2, end2 = '{}  '
+            start1, end1 = '[]' if type1 == list else '{}'
+            start2, end2 = start1, end1
         else:
             same_type = False
             start1, end1 = '[]' if type1 == list else '{}'
@@ -201,14 +221,66 @@ class JsonDiff:
                 format_params2 = self.get_list_format_params(json2)
             else:
                 format_params1 = self.get_dict_format_params(json1)
-                format_params1 = self.get_dict_format_params(json2)
+                format_params2 = self.get_dict_format_params(json2)
+
+            # COMPUTE COLUMN WIDTHS HERE
+            remaining_width = max_width \
+                - indent_level * self.INDENT_WIDTH \
+                - 3 * self.COLUMN_SPACING
+            max_key_length = max(
+                format_params1.key_length,
+                format_params2.key_length
+            )
+
+            default_column_width = remaining_width // 3
+
+            if max_key_length < default_column_width:
+                key_column_width = max_key_length
+            else:
+                pass
+
+
+            # total_width = sum()
+
+
 
             for diff_row in self.get_row_data(json1, json2):
-                print(diff_row)
+
+                # SEND diff_row AND AN OBJECT ENCAPSULATING THE COLUMN WIDTHS
+                yield self.render_same_container_type_item(
+                    diff_row,
+                    # format_params1,
+                    # format_params2,
+                    # max_width,
+                )
 
             yield end1
 
-    def get_list_format_params(self, json_list):
+    def render_same_container_type_item(
+            self,
+            diff_row: DiffRow,
+            left_format_params,
+            right_format_params,
+            max_width,
+    ) -> str:
+        """
+        :param: diff_row
+        :return: Returns string w/ formatted row
+        """
+        print(f"diff_row={str(diff_row)}")
+
+        max_key_length = max(
+            left_format_params.key_length, right_format_params.key_length)
+
+        return "{} ".format(
+            diff_row.diff_value,
+        )
+
+    def get_list_format_params(self, json_list: list) -> FormatParams:
+        """
+        Computes maximum length of indexes and values
+        :param json_list:  List from JSON structure
+        """
         key_length = int(
             log10(
                 len(json_list)
@@ -219,20 +291,21 @@ class JsonDiff:
             self.repr_length(i) for i in json_list
         )
 
-        return key_length, value_length
+        return FormatParams(key_length, value_length)
 
-    def get_dict_format_params(self, json_dict):
+    def get_dict_format_params(self, json_dict: JsonType) -> FormatParams:
         key_length = 0
         value_length = 0
         for key, value in json_dict.items():
             key_length = max(key_length, self.repr_length(key))
             value_length = max(value_length, self.repr_length(value))
-        return key_length, value_length
+        return FormatParams(key_length, value_length)
 
     @staticmethod
     def repr_length(item) -> int:
         if item is MISSING_VALUE:
             return 0
+        # list or dict length is 1 for opening/closing [ or }
         if isinstance(item, list) or isinstance(item, dict):
             return 1
         return len(repr(item))
@@ -275,7 +348,8 @@ class JsonDiff:
                 keys_and_values2
             )
 
-    def get_next_key_and_value(self, key_value_generator):
+    @staticmethod
+    def get_next_key_and_value(key_value_generator):
         try:
             key, value = next(key_value_generator)
         except StopIteration:
@@ -283,7 +357,16 @@ class JsonDiff:
         else:
             return DiffKeyValue(key, value)
 
-    def get_keys_and_values_from_container(self, container):
+    @staticmethod
+    def get_keys_and_values_from_container(
+            container: Union[list, dict],
+    ) -> Iterator[Tuple[Any, Any]]:
+        """
+        Generator that returns index-value (for lists) or key-value (for dicts)
+        pairs.  Pairs are sorted by index/key.
+        :param container: list or dict to process
+        :yields:  index/key - value pairs
+        """
         if isinstance(container, list):
             for i, value in enumerate(container):
                 yield i, value

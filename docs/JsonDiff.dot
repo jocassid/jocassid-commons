@@ -1,17 +1,44 @@
 digraph JsonDiff{
   node [shape="rectangle"];
   label="JsonDiff";
+  splines="ortho";
   subgraph cluster_json{
     label="json";
     subgraph cluster_JsonDiff{
       label="JsonDiff"
-      run -> compare_dicts;
-      compare_dicts -> get_column_format [label="1"];
-      compare_dicts -> show_values [label="2"];
-      show_values -> fit_value_in_column;
-      value_width -> is_composite_type;
-      get_column_format -> value_width [label="1"];
-      get_column_format -> adjust_column_widths [label="2"];
+      run;
+      render_container_diff;
+      {
+        rank="same";
+				same_type[label="same type?" shape="diamond"];
+				not_defined[label="not defined"];
+			}
+      type_list[label="type list?" shape="diamond"];
+      get_list_format_params;
+      get_dict_format_params;
+      repr_length;
+      render_same_container_type_item;
+      get_row_data;
+      get_keys_and_values_from_container;
+
+      run -> render_container_diff;
+      render_container_diff -> same_type;
+
+      same_type -> type_list[xlabel="1-yes"];
+      same_type -> not_defined[xlabel="no"];
+      same_type -> get_row_data[xlabel="2"];
+      same_type -> render_same_container_type_item[xlabel="3"];
+
+      type_list -> get_list_format_params[xlabel="yes"];
+      type_list -> get_dict_format_params[xlabel="no"];
+
+      get_row_data -> get_keys_and_values_from_container[xlabel="1"];
+      get_row_data -> get_next_key_and_value[xlabel="2"];
+
+      get_list_format_params-> repr_length;
+
+      render_same_container_type_item;
+
     }
   }
 }
