@@ -17,8 +17,8 @@ digraph JsonDiff{
       get_list_format_params;
       get_dict_format_params;
       repr_length;
-      render_same_container_type_item;
-      get_row_data;
+      render_item_same_container_type;
+      get_item_data;
       get_keys_and_values_from_container;
 
       run -> render_container_diff;
@@ -26,18 +26,18 @@ digraph JsonDiff{
 
       same_type -> type_list[xlabel="1-yes"];
       same_type -> not_defined[xlabel="no"];
-      same_type -> get_row_data[xlabel="2"];
-      same_type -> render_same_container_type_item[xlabel="3"];
+      same_type -> get_item_data[xlabel="2"];
+      same_type -> render_item_same_container_type[xlabel="3"];
 
       type_list -> get_list_format_params[xlabel="yes"];
       type_list -> get_dict_format_params[xlabel="no"];
 
-      get_row_data -> get_keys_and_values_from_container[xlabel="1"];
-      get_row_data -> get_next_key_and_value[xlabel="2"];
+      get_item_data -> get_keys_and_values_from_container[xlabel="1"];
+      get_item_data -> get_next_key_and_value[xlabel="2"];
 
       get_list_format_params-> repr_length;
 
-      render_same_container_type_item;
+      render_item_same_container_type;
 
     }
   }

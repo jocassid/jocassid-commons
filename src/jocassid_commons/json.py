@@ -2,7 +2,7 @@
 from collections import namedtuple
 from dataclasses import dataclass
 from enum import Enum
-from itertools import chain
+from itertools import chain, zip_longest
 from math import ceil, log10
 from typing import Any, Iterator, List, Optional, Tuple, Union
 
@@ -12,7 +12,17 @@ from jocassid_commons.itertools import merge_queue_factory
 MISSING_VALUE = 'MISSING_VALUE'
 
 
+# PY3.11: Adds StrEnum
+class DiffType(Enum):
+    MATCH = ' '
+    LEFT_ONLY = '<'
+    RIGHT_ONLY = '>'
+    MISMATCH = 'X'
+
+# type of entire JSON object or list
 JsonType = Union[dict, list]
+
+JsonItemType = Union[JsonType, int, float, bool, str]
 
 KeyValueWidths = namedtuple(
     'FormatParams',
@@ -85,9 +95,6 @@ def locate_key(collection, pattern, path_prefix='/'):
             yield json_path
 
 
-
-
-
 class DiffKeyValue:
 
     def __init__(self, key=MISSING_VALUE, value=MISSING_VALUE):
@@ -96,11 +103,11 @@ class DiffKeyValue:
         self.value = value
 
 
-class DiffRow:
+class ItemDiff:
 
     def __init__(
             self,
-            diff_value: str,
+            diff_type: DiffType,
             key1=MISSING_VALUE,
             value1=MISSING_VALUE,
             key2=MISSING_VALUE,
@@ -109,11 +116,19 @@ class DiffRow:
         self.validate_params(key1, value1)
         self.validate_params(key2, value2)
 
-        self.diff_value = diff_value
+        self.diff_type = diff_type
         self.key1 = key1
         self.value1 = value1
         self.key2 = key2
         self.value2 = value2
+
+    @property
+    def has_key1(self):
+        return self.key1 is not MISSING_VALUE
+
+    @property
+    def has_key2(self):
+        return self.key2 is not MISSING_VALUE
 
     @staticmethod
     def validate_params(key, value):
@@ -139,7 +154,7 @@ class DiffRow:
 
     def __str__(self):
         return "diff_value={} key1={} value1={} key2={} value2={}".format(
-            self.diff_value,
+            self.diff_type,
             self.key1,
             self.value1,
             self.key2,
@@ -186,6 +201,7 @@ class JsonDiff:
 
     INDENT_WIDTH = 2
     COLUMN_SPACING = 2
+    SPACER = ' ' * COLUMN_SPACING
 
     def run(
             self,
@@ -262,33 +278,68 @@ class JsonDiff:
                 raise NotImplementedError(
                     "width of keys & values exceeds remaining width after indents and column spacing")
 
-            for diff_row in self.get_row_data(json1, json2):
+            for item_diff in self.get_item_data(json1, json2):
 
                 # SEND diff_row AND AN OBJECT ENCAPSULATING THE COLUMN WIDTHS
-                yield self.render_same_container_type_item(
-                    diff_row,
+                yield self.render_item_same_container_type(
+                    item_diff,
                     column_widths,
                 )
 
             yield end1
 
-    def render_same_container_type_item(
+    def render_item_same_container_type(
             self,
-            diff_row: DiffRow,
+            item_diff: ItemDiff,
             column_widths: ColumnWidths
-    ) -> str:
+    ) -> Iterator[str]:
         """
+        If the two items are same container type then there is 1 column for
+        key/index.  If the column types are different, there will be two
+        columns for indexes/keys.
         :param: diff_row
         :return: Returns string w/ formatted row
         """
-        print(f"diff_row={str(diff_row)}")
+        print(f"diff_row={str(item_diff)}")
 
         indent = " "
 
-        return "  ".join([
-            f"{indent}{diff_row.diff_value}",
-            self.get_repr(diff_row.key1, column_widths.left_key_width),
-        ])
+        if item_diff.diff_type == DiffType.LEFT_ONLY:
+            key = item_diff.key1
+            key_width = column_widths.left_key_width
+        else:
+            key = item_diff.key2
+            key_width = column_widths.right_key_width
+
+        first_time_through_loop = True
+        for left_row, right_row in zip_longest(
+                self.get_item_rows(item_diff.value1),
+                self.get_item_rows(item_diff.value2),
+        ):
+            if first_time_through_loop:
+                yield self.SPACER.join([
+                    f"{indent}{self.get_repr(item_diff, key_width)}",
+                    self.get_repr(left_row, column_widths.left_value_width),
+                    self.get_repr(right_row, column_widths.right_value_width)
+                ])
+                first_time_through_loop = False
+                continue
+
+
+
+
+        #
+        #
+        # return "  ".join([
+        #     f"{indent}{item_diff.diff_value}",
+        #     # self.get_repr(item_diff.key1, column_widths.left_key_width),
+        # ])
+
+    def get_item_rows(self, value: JsonItemType):
+        if type(value) in (list, dict):
+            raise NotImplementedError()
+        yield value
+
 
     def get_list_format_params(self, json_list: list) -> KeyValueWidths:
         """
@@ -324,7 +375,7 @@ class JsonDiff:
             return 1
         return len(repr(item))
 
-    def get_row_data(self, json1, json2) -> Iterator[DiffRow]:
+    def get_item_data(self, json1, json2) -> Iterator[ItemDiff]:
         keys_and_values1 = self.get_keys_and_values_from_container(json1)
         keys_and_values2 = self.get_keys_and_values_from_container(json2)
 
@@ -332,28 +383,28 @@ class JsonDiff:
         next_key_value2 = self.get_next_key_and_value(keys_and_values2)
 
         while next_key_value1.has_data and next_key_value2.has_data:
-            key1, value1, key2, value2 = DiffRow.unpack(
+            key1, value1, key2, value2 = ItemDiff.unpack(
                 next_key_value1,
                 next_key_value2,
             )
             if key1 < key2:
-                yield DiffRow('<', key1, value1)
+                yield ItemDiff(DiffType.LEFT_ONLY, key1, value1)
                 next_key_value1 = self.get_next_key_and_value(
                     keys_and_values1,
                 )
                 continue
 
             if key1 > key2:
-                yield DiffRow('>', key2=key2, value2=value2)
+                yield ItemDiff(DiffType.RIGHT_ONLY, key2=key2, value2=value2)
                 next_key_value2 = self.get_next_key_and_value(
                     keys_and_values2
                 )
                 continue
 
             if value1 == value2:
-                yield DiffRow(' ', key1, value1, key2, value2)
+                yield ItemDiff(DiffType.MATCH, key1, value1, key2, value2)
             else:
-                yield DiffRow('X', key1, value1, key2, value2)
+                yield ItemDiff(DiffType.MISMATCH, key1, value1, key2, value2)
 
             next_key_value1 = self.get_next_key_and_value(
                 keys_and_values1,

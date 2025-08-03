@@ -205,7 +205,7 @@ class TestJsonDiff:
         assert JsonDiff.repr_length(None) == 4
         assert JsonDiff.repr_length(False) == 5
 
-    def test_diffs_only_false_values_short_strings(self):
+    def test_compare_two_dicts(self):
         json1 = {'a': 'alpha', 'b': 'bravo', 'd': 'delta'}
         json2 = {'b': 'beta', 'c': 'charlie', 'd': 'delta'}
 
