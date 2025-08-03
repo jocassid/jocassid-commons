@@ -9,6 +9,34 @@ from typing import Any, Iterator, List, Optional, Tuple, Union
 from jocassid_commons.itertools import merge_queue_factory
 
 
+MISSING_VALUE = 'MISSING_VALUE'
+
+
+JsonType = Union[dict, list]
+
+KeyValueWidths = namedtuple(
+    'FormatParams',
+    ['key_width', 'value_length']
+)
+
+
+@dataclass
+class ColumnWidths:
+    left_key_width: int = 0
+    left_value_width: int = 0
+    right_value_width: int = 0
+    right_key_width: int = 0
+
+    @property
+    def total_width(self):
+        return sum([
+            self.left_key_width,
+            self.left_value_width,
+            self.right_value_width,
+            self.right_key_width,
+        ])
+
+
 def json_get(collection, default, *keys):
     """function to extract values from a dict of dicts like what is returned
     by json.load
@@ -57,14 +85,7 @@ def locate_key(collection, pattern, path_prefix='/'):
             yield json_path
 
 
-JsonType = Union[dict, list]
 
-FormatParams = namedtuple(
-    'FormatParams',
-    ['key_length', 'value_length']
-)
-
-MISSING_VALUE = 'MISSING_VALUE'
 
 
 class DiffKeyValue:
@@ -227,31 +248,26 @@ class JsonDiff:
             remaining_width = max_width \
                 - indent_level * self.INDENT_WIDTH \
                 - 3 * self.COLUMN_SPACING
-            max_key_length = max(
-                format_params1.key_length,
-                format_params2.key_length
+
+            column_widths = ColumnWidths(
+                left_key_width=max(
+                    format_params1.key_width,
+                    format_params2.key_width
+                ),
+                left_value_width=format_params1.value_length,
+                right_value_width=format_params2.value_length,
             )
 
-            default_column_width = remaining_width // 3
-
-            if max_key_length < default_column_width:
-                key_column_width = max_key_length
-            else:
-                pass
-
-
-            # total_width = sum()
-
-
+            if column_widths.total_width > remaining_width:
+                raise NotImplementedError(
+                    "width of keys & values exceeds remaining width after indents and column spacing")
 
             for diff_row in self.get_row_data(json1, json2):
 
                 # SEND diff_row AND AN OBJECT ENCAPSULATING THE COLUMN WIDTHS
                 yield self.render_same_container_type_item(
                     diff_row,
-                    # format_params1,
-                    # format_params2,
-                    # max_width,
+                    column_widths,
                 )
 
             yield end1
@@ -259,9 +275,7 @@ class JsonDiff:
     def render_same_container_type_item(
             self,
             diff_row: DiffRow,
-            left_format_params,
-            right_format_params,
-            max_width,
+            column_widths: ColumnWidths
     ) -> str:
         """
         :param: diff_row
@@ -269,19 +283,19 @@ class JsonDiff:
         """
         print(f"diff_row={str(diff_row)}")
 
-        max_key_length = max(
-            left_format_params.key_length, right_format_params.key_length)
+        indent = " "
 
-        return "{} ".format(
-            diff_row.diff_value,
-        )
+        return "  ".join([
+            f"{indent}{diff_row.diff_value}",
+            self.get_repr(diff_row.key1, column_widths.left_key_width),
+        ])
 
-    def get_list_format_params(self, json_list: list) -> FormatParams:
+    def get_list_format_params(self, json_list: list) -> KeyValueWidths:
         """
         Computes maximum length of indexes and values
         :param json_list:  List from JSON structure
         """
-        key_length = int(
+        key_width = int(
             log10(
                 len(json_list)
             )
@@ -291,15 +305,15 @@ class JsonDiff:
             self.repr_length(i) for i in json_list
         )
 
-        return FormatParams(key_length, value_length)
+        return KeyValueWidths(key_width, value_length)
 
-    def get_dict_format_params(self, json_dict: JsonType) -> FormatParams:
-        key_length = 0
+    def get_dict_format_params(self, json_dict: JsonType) -> KeyValueWidths:
+        key_width = 0
         value_length = 0
         for key, value in json_dict.items():
-            key_length = max(key_length, self.repr_length(key))
+            key_width = max(key_width, self.repr_length(key))
             value_length = max(value_length, self.repr_length(value))
-        return FormatParams(key_length, value_length)
+        return KeyValueWidths(key_width, value_length)
 
     @staticmethod
     def repr_length(item) -> int:
@@ -383,287 +397,24 @@ class JsonDiff:
             return dict
         return None
 
+    def get_repr(self, value: Any, column_width: int) -> str:
+        if isinstance(value, int):
+            return str(value).rjust(column_width)
+        if isinstance(value, dict):
+            return self.get_dict_repr(value, column_width)
+
+        return f'{type(value)} NOT IMPLEMENTED'
+
+    def get_dict_repr(self, value: dict, column_width: int):
+        pieces = ['{']
+        total_length = 1
+
+        for key in sorted(value.keys()):
+            repr_value = self.get_repr()
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-        # if index is MISSING_VALUE:
-        #     if isinstance(value, list): or isinstance(value, dict):
-        #         node = ReprTreeContainerNode(list)
-        # pass
-
-
-
-    # class ColumnFormat:
-    #     def __init__(self):
-    #         self.key_width = 10
-    #         self.value1_width = 10
-    #         self.value2_width = 10
-    #
-    # COLUMN_SEPARATOR = '  '
-    #
-    #
-    # def __init__(
-    #         self,
-    #         max_width: int = 80,
-    #         diff_only=False,
-    #         keys=None,
-    # ):
-    #     self.max_width = max_width
-    #     """"""
-    #
-    #     self.diff_only = diff_only
-    #     """"""
-    #
-    #     self.keys = keys
-    #     """"""
-    #
-    # def run(self, json1, json2):
-
-    #         terminate = False
-    #
-    #         if json1 is self.MISSING_VALUE:
-    #             terminate = True
-    #             yield f"No value found for keys {self.keys} in first JSON object"
-    #         if json2 is self.MISSING_VALUE:
-    #             terminate = True
-    #             yield f"No value found for keys {self.keys} in second JSON object"
-    #
-    #         if terminate:
-    #             return
-    #
-    #     if isinstance(json1, dict) and isinstance(json2, dict):
-    #         yield from self.compare_dicts(json1, json2)
-    #         return
-    #
-    #     if isinstance(json1, list) and isinstance(json2, list):
-    #         yield from self.compare_lists(json1, json2)
-    #         return
-    #
-    #     yield f"Diff between {type(json1)} and {type(json2)} not supported"
-    #
-    # def compare_dicts(self, json_dict1, json_dict2):
-    #
-    #     max_key_len1, max_value_len1, repr_json1 = self.get_repr_dict(json_dict1)
-    #     max_key_len2, max_value_len2, repr_json2 = self.get_repr_dict(json_dict2)
-    #
-    #     max_key_len = max(max_key_len1, max_key_len2)
-    #
-    #     line_width = sum([
-    #         2,
-    #         max_key_len,
-    #         2 * len(self.COLUMN_SEPARATOR),
-    #         max_value_len1,
-    #         max_value_len2,
-    #     ])
-    #
-    #     if line_width > self.max_width:
-    #         overflow = line_width - self.max_width
-    #         column_widths = [max_key_len, max_value_len1, max_value_len2]
-    #         total_column_width = sum(column_widths)
-    #         percentages = [width / total_column_width for width in column_widths]
-    #         trim_amounts = [int(ceil(overflow * percent)) for percent in percentages]
-    #         max_key_len = max(max_key_len - trim_amounts[0], 5)
-    #         max_value_len1 = max(max_value_len1 - trim_amounts[1], 5)
-    #         max_value_len2 = max(max_value_len2 - trim_amounts[2], 5)
-    #
-    #     yield '{'
-    #
-    #     for key, side, value1, value2 in self.get_key_side_and_values(
-    #             repr_json1,
-    #             repr_json2
-    #     ):
-    #         if self.diff_only and side == ' ':
-    #             continue
-    #
-    #         line = self.COLUMN_SEPARATOR.join([
-    #             f" {side}",
-    #             self.adjust_width(key, max_key_len),
-    #             self.adjust_width(value1, max_value_len1),
-    #             self.adjust_width(value2, max_value_len2),
-    #         ])
-    #         yield line
-    #
-    #     yield '}'
-    #
-    # def compare_lists(self, json_list1, json_list2):
-    #     list1_len = len(json_list1)
-    #     list2_len = len(json_list2)
-    #     max_len = max(list1_len, list2_len)
-    #     max_index_digits = ceil(log10(max_len))
-    #
-    #     overhead_width = sum([
-    #         2,
-    #         max_index_digits,
-    #         2 * len(self.COLUMN_SEPARATOR)
-    #     ])
-    #     estimated_value_width = int((self.max_width - overhead_width) / 2)
-    #
-    #     max_value_length, repr_json1 = self.get_repr_list(
-    #         json_list1,
-    #         estimated_value_width,
-    #     )
-    #
-    #
-    #     yield '['
-    #
-    #     for index, side, value1, value2 in self.get_index_side_and_values(
-    #         json_list1,
-    #         json_list2,
-    #         list1_len,
-    #         list2_len,
-    #         max_len,
-    #     ):
-    #         if self.diff_only and side == ' ':
-    #             continue
-    #
-    #         line = self.COLUMN_SEPARATOR.join([
-    #             f" {side}",
-    #             str(index).rjust(max_index_digits),
-    #             value1,
-    #             value2,
-    #         ])
-    #         yield line
-    #
-    #
-    #     yield ']'
-    #
-    # @staticmethod
-    # def get_repr_list(json_list, estimated_width):
-    #     max_value_len = 0
-    #     list_out = []
-    #
-    #     for value in json_list:
-    #         if isinstance(value, dict):
-    #             if len(value) <=5:
-    #                 value_repr = repr(value)
-    #                 value_len = len(value_repr)
-    #                 if value_len <= estimated_width:
-    #                     max_value_len = max(max_value_len, value_len)
-    #
-    #     return max_value_len, list_out
-
-    # def get_index_side_and_values(
-    #         self,
-    #         json_list1,
-    #         json_list2,
-    #         list1_len,
-    #         list2_len,
-    #         max_len,
-    # ):
-    #     for i in range(max_len):
-    #         in_list1 = i < list1_len
-    #         in_list2 = i < list2_len
-    #
-    #         if in_list1 and in_list2:
-    #             value1 = json_list1[i]
-    #             value2 = json_list2[i]
-    #             side = ' ' if value1 == value2 else 'X'
-    #             yield i, side, repr(value1), repr(value2)
-    #             continue
-    #
-    #         if in_list1 and not in_list2:
-    #             yield i, '<', repr(json_list1[i]), ''
-    #             continue
-    #
-    #         if not in_list1 and in_list2:
-    #             yield i, '>', '', repr(json_list2[i])
-    #             continue
-    #
-    #         raise RuntimeError("This line should be un-reachable")
-    #
-    # @staticmethod
-    # def adjust_width(text: str, width):
-    #     text_len = len(text)
-    #     if text_len < width:
-    #         return text.ljust(width)
-    #     if text_len > width:
-    #         return f"{text[:width - 4]} ..."
-    #     return text
-    #
-    # def get_key_side_and_values(self, repr_dict1, repr_dict2) -> Tuple[str, str, str, str]:
-    #     """
-    #     :param repr_dict1:
-    #     :param repr_dict2
-    #     """
-    #     items1 = self.items_by_key(repr_dict1)
-    #     items2 = self.items_by_key(repr_dict2)
-    #
-    #     more_items1 = True
-    #     more_items2 = True
-    #
-    #     key1, key2, value1, value2 = '', '', '', ''
-    #
-    #     try:
-    #         key1, value1 = next(items1)
-    #     except StopIteration:
-    #         more_items1 = False
-    #
-    #     try:
-    #         key2, value2 = next(items2)
-    #     except StopIteration:
-    #         more_items2 = False
-    #
-    #     while more_items1 and more_items2:
-    #
-    #         if key1 < key2:
-    #             yield key1, '<', value1, ''
-    #             try:
-    #                 key1, value1 = next(items1)
-    #             except StopIteration:
-    #                 more_items1 = False
-    #             continue
-    #
-    #         if key1 > key2:
-    #             yield key2, '>', '', value2
-    #             try:
-    #                 key2, value2 = next(items2)
-    #             except StopIteration:
-    #                 more_items2 = False
-    #             continue
-    #
-    #         side = ' ' if value1 == value2 else 'X'
-    #         yield key1, side, value1, value2
-    #
-    #         try:
-    #             key1, value1 = next(items1)
-    #         except StopIteration:
-    #             more_items1 = False
-    #
-    #         try:
-    #             key2, value2 = next(items2)
-    #         except StopIteration:
-    #             more_items2 = False
-
-    # @staticmethod
-    # def items_by_key(a_dict):
-    #     for key in sorted(a_dict.keys()):
-    #         yield key, a_dict[key]
-    #
-    # @staticmethod
-    # def get_repr_dict(json_dict):
-    #     max_key_len = 0
-    #     max_value_len = 0
-    #     dict_out = {}
-    #
-    #     for key, value in json_dict.items():
-    #         key_repr = repr(key)
-    #         value_repr = repr(value)
-    #         max_key_len = max(max_key_len, len(key_repr))
-    #         max_value_len = max(max_value_len, len(value_repr))
-    #         dict_out[key_repr] = value_repr
-    #
-    #     return max_key_len, max_value_len, dict_out
+        raise NotImplementedError()
 
 
 def json_diff(json1, json2, max_width=80, diff_only=False, keys=None):
