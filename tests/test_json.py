@@ -2,13 +2,14 @@
 from itertools import zip_longest
 from re import compile as re_compile
 
-from pytest import raises
+from pytest import mark, raises
 
 from jocassid_commons.json import (
     json_diff,
     json_get,
     JsonDiff,
     locate_key,
+    MINIMUM_COLUMN_WIDTH,
     MISSING_VALUE,
 )
 
@@ -195,15 +196,21 @@ class TestJsonDiff:
     #     assert expected == dict_out
 
     def test_repr_length(self):
-        assert JsonDiff.repr_length(MISSING_VALUE) == 0
-        assert JsonDiff.repr_length("foo") == 5
-        assert JsonDiff.repr_length("") == 2
-        assert JsonDiff.repr_length(183) == 3
+        assert JsonDiff.repr_length(MISSING_VALUE) == MINIMUM_COLUMN_WIDTH
+        assert JsonDiff.repr_length("foo") == MINIMUM_COLUMN_WIDTH
+        assert JsonDiff.repr_length("123456789") == 11
+        assert JsonDiff.repr_length("") == MINIMUM_COLUMN_WIDTH
+        assert JsonDiff.repr_length(183) == MINIMUM_COLUMN_WIDTH
         assert JsonDiff.repr_length(123.0625) == 8
-        assert JsonDiff.repr_length([]) == 1
-        assert JsonDiff.repr_length({}) == 1
-        assert JsonDiff.repr_length(None) == 4
-        assert JsonDiff.repr_length(False) == 5
+        assert JsonDiff.repr_length([]) == MINIMUM_COLUMN_WIDTH
+        assert JsonDiff.repr_length({}) == MINIMUM_COLUMN_WIDTH
+        assert JsonDiff.repr_length(None) == MINIMUM_COLUMN_WIDTH
+        assert JsonDiff.repr_length(False) == MINIMUM_COLUMN_WIDTH
+
+    def test_get_dict_format_params(self):
+        key_value_widths = JsonDiff().get_dict_format_params({'b': 'beta'})
+        assert key_value_widths.key_width == 5
+        assert key_value_widths.value_length == 6
 
     def test_compare_two_dicts(self):
         json1 = {'a': 'alpha', 'b': 'bravo', 'd': 'delta'}
@@ -211,10 +218,10 @@ class TestJsonDiff:
 
         expected_lines = [
             "{",
-            "<  'a'  'alpha'           ",
-            "X  'b'  'bravo'  'beta'   ",
-            ">  'c'           'charlie'",
-            "   'd'  'delta'  'delta'  ",
+            " <  'a'  'alpha'           ",
+            " X  'b'  'bravo'  'beta'   ",
+            " >  'c'           'charlie'",
+            "    'd'  'delta'  'delta'  ",
             "}",
         ]
         actual_lines = list(
@@ -225,7 +232,7 @@ class TestJsonDiff:
                 1,
         ):
             expected_line, actual_line = actual_and_expected_lines
-            message = f"{i:>3}.\n  {expected_line}\n  {actual_line}"
+            message = f"{i:>3}.\n  {expected_line!r}\n  {actual_line!r}"
             try:
                 assert expected_line == actual_line
             except AssertionError as error:
@@ -299,6 +306,31 @@ class TestJsonDiff:
         ):
             expected, actual = expected_and_actual
             assert expected == actual, f"error in line {i}"
+
+    @mark.parametrize(
+        "repr_str,column_width,expected",
+        [
+            ("'foo'", 5, "'foo'"),
+        ],
+    )
+    def test_truncate_repr(self, repr_str, column_width, expected):
+        actual = JsonDiff.truncate_repr(repr_str, column_width)
+        assert actual == expected
+
+    @mark.parametrize(
+        "value,column_width,expected",
+        [
+            (MISSING_VALUE, 10, ' ' * 10),
+            (1, 5, f"{1:>5}"),
+            (12_345, 5, '12345'),
+            (123_456, 5, '1 ...'),
+            ('foo', 5, "'foo'"),
+        ]
+    )
+    def test_get_repr(self, value, column_width, expected):
+        actual = JsonDiff().get_repr(value, column_width)
+        assert actual == expected
+
 
 
 

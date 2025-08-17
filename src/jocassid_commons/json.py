@@ -11,6 +11,8 @@ from jocassid_commons.itertools import merge_queue_factory
 
 MISSING_VALUE = 'MISSING_VALUE'
 
+MINIMUM_COLUMN_WIDTH = 5
+
 
 # PY3.11: Adds StrEnum
 class DiffType(Enum):
@@ -18,6 +20,7 @@ class DiffType(Enum):
     LEFT_ONLY = '<'
     RIGHT_ONLY = '>'
     MISMATCH = 'X'
+
 
 # type of entire JSON object or list
 JsonType = Union[dict, list]
@@ -30,12 +33,26 @@ KeyValueWidths = namedtuple(
 )
 
 
-@dataclass
 class ColumnWidths:
-    left_key_width: int = 0
-    left_value_width: int = 0
-    right_value_width: int = 0
-    right_key_width: int = 0
+
+    def __init__(
+            self,
+            left_key_width: int = MINIMUM_COLUMN_WIDTH,
+            left_value_width: int = MINIMUM_COLUMN_WIDTH,
+            right_value_width: int = MINIMUM_COLUMN_WIDTH,
+            right_key_width: int = 0,
+    ):
+        def enforce_min_width(width: int) -> int:
+            return max(width, MINIMUM_COLUMN_WIDTH)
+
+        self.left_key_width: int = enforce_min_width(left_value_width)
+        self.left_value_width: int = enforce_min_width(left_value_width)
+        self.right_value_width: int = enforce_min_width(right_value_width)
+
+        if right_key_width == 0:
+            self.right_key_width: int = 0
+        else:
+            self.right_key_width: int = enforce_min_width(right_key_width)
 
     @property
     def total_width(self):
@@ -45,6 +62,14 @@ class ColumnWidths:
             self.right_value_width,
             self.right_key_width,
         ])
+
+    def __repr__(self):
+        return (
+            f"left_key_width={self.left_key_width} "
+            f"left_value_width={self.left_value_width} "
+            f"right_key_width={self.right_key_width} "
+            f"right_value_width={self.right_value_width}"
+        )
 
 
 def json_get(collection, default, *keys):
@@ -101,6 +126,11 @@ class DiffKeyValue:
         self.has_data = any(t is not MISSING_VALUE for t in (key, value))
         self.key = key
         self.value = value
+
+    def __repr__(self):
+        return (
+            f"{self.has_data=} {self.key=} {self.value=}"
+        )
 
 
 class ItemDiff:
@@ -160,6 +190,9 @@ class ItemDiff:
             self.key2,
             self.value2,
         )
+
+    def __repr__(self):
+        return self.__str__()
 
 
 class JsonDiff:
@@ -226,9 +259,9 @@ class JsonDiff:
             json1 = json_get(json1, MISSING_VALUE, *keys)
             json2 = json_get(json2, MISSING_VALUE, *keys)
 
-        yield from self.render_container_diff(json1, json2, max_width)
+        yield from self.render_diff(json1, json2, max_width)
 
-    def render_container_diff(
+    def render_diff(
             self,
             json1: JsonType,
             json2: JsonType,
@@ -280,8 +313,8 @@ class JsonDiff:
 
             for item_diff in self.get_item_data(json1, json2):
 
-                # SEND diff_row AND AN OBJECT ENCAPSULATING THE COLUMN WIDTHS
-                yield self.render_item_same_container_type(
+                # SEND item_diff AND AN OBJECT ENCAPSULATING THE COLUMN WIDTHS
+                yield from self.render_item_same_container_type(
                     item_diff,
                     column_widths,
                 )
@@ -318,15 +351,16 @@ class JsonDiff:
         ):
             if first_time_through_loop:
                 yield self.SPACER.join([
-                    f"{indent}{self.get_repr(item_diff, key_width)}",
+                    "{}{}".format(
+                        indent,
+                        item_diff.diff_type.value,
+                    ),
+                    self.get_repr(item_diff.key1, key_width),
                     self.get_repr(left_row, column_widths.left_value_width),
                     self.get_repr(right_row, column_widths.right_value_width)
                 ])
                 first_time_through_loop = False
                 continue
-
-
-
 
         #
         #
@@ -339,7 +373,6 @@ class JsonDiff:
         if type(value) in (list, dict):
             raise NotImplementedError()
         yield value
-
 
     def get_list_format_params(self, json_list: list) -> KeyValueWidths:
         """
@@ -369,11 +402,16 @@ class JsonDiff:
     @staticmethod
     def repr_length(item) -> int:
         if item is MISSING_VALUE:
-            return 0
-        # list or dict length is 1 for opening/closing [ or }
-        if isinstance(item, list) or isinstance(item, dict):
-            return 1
-        return len(repr(item))
+            length = 0
+        elif isinstance(item, list) or isinstance(item, dict):
+            # list or dict length is 1 for opening/closing [ or }
+            length = 1
+        elif isinstance(item, str):
+            # add 2 for opening and closing quote
+            length = len(item) + 2
+        else:
+            length = len(repr(item))
+        return max(length, MINIMUM_COLUMN_WIDTH)
 
     def get_item_data(self, json1, json2) -> Iterator[ItemDiff]:
         keys_and_values1 = self.get_keys_and_values_from_container(json1)
@@ -448,11 +486,31 @@ class JsonDiff:
             return dict
         return None
 
+    @staticmethod
+    def truncate_repr(repr_str, column_width):
+        if len(repr_str) > column_width:
+            trim_length = column_width - 4
+            if trim_length < 0:
+                breakpoint()
+            print(f"{trim_length=} for {repr_str}")
+            return repr_str[:trim_length] + ' ...'
+        return repr_str
+
     def get_repr(self, value: Any, column_width: int) -> str:
+        if value is MISSING_VALUE:
+            return ' ' * column_width
         if isinstance(value, int):
-            return str(value).rjust(column_width)
+            return self.truncate_repr(
+                str(value).rjust(column_width),
+                column_width,
+            )
         if isinstance(value, dict):
-            return self.get_dict_repr(value, column_width)
+            raise NotImplementedError(
+                "Caller should sort out whether value is list or dict and "
+                "not use this method on it."
+            )
+        if isinstance(value, str):
+            return self.truncate_repr(repr(value), column_width)
 
         return f'{type(value)} NOT IMPLEMENTED'
 
@@ -461,9 +519,8 @@ class JsonDiff:
         total_length = 1
 
         for key in sorted(value.keys()):
-            repr_value = self.get_repr()
-
-
+            # repr_value = self.get_repr()
+            break
 
         raise NotImplementedError()
 
