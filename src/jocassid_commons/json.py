@@ -2,16 +2,27 @@
 from collections import namedtuple
 from dataclasses import dataclass
 from enum import Enum
-from itertools import chain, zip_longest
+from itertools import chain, count, zip_longest
 from math import ceil, log10
+from uuid import uuid4
 from typing import Any, Iterator, List, Optional, Tuple, Union
 
+from jocassid_commons.exceptions import NoSubclassImplementationError
 from jocassid_commons.itertools import merge_queue_factory
 
 
-MISSING_VALUE = 'MISSING_VALUE'
+MISSING_VALUE = uuid4()
+NO_KEY = uuid4()
+
 
 MINIMUM_COLUMN_WIDTH = 5
+
+
+class RowType(Enum):
+    START = 1
+    ITEM = 2
+    END = 3
+    PLACEHOLDER = 4
 
 
 # PY3.11: Adds StrEnum
@@ -241,7 +252,6 @@ class JsonDiff:
             json1: JsonType,
             json2: JsonType,
             max_width: int = 80,
-            diff_only: bool = False,
             keys: Optional[Tuple[Any]] = None,
     ) -> Iterator[str]:
         """
@@ -249,8 +259,6 @@ class JsonDiff:
         :param json2:
         :param max_width:   Total width of string output, essentially the
                             number of columns in the terminal
-        :param diff_only:   Flag controlling whether the entire JSON structure
-                            is shown or just those areas that are different
         :param keys:        A tuple of keys which will be used with json_get
                             to extract values from within the two JSON objects
         """
@@ -535,4 +543,180 @@ def json_diff(json1, json2, max_width=80, diff_only=False, keys=None):
     )
 
 
+def is_json_type(value: Any) -> Optional[type]:
+    if isinstance(value, list):
+        return list
+    if isinstance(value, dict):
+        return dict
+    return None
 
+
+@dataclass
+class DataRow:
+    row_type: RowType
+    key_repr: str
+    key: Any
+    value: Any
+
+    def __str__(self):
+        return self.__repr__()
+
+    def __repr__(self):
+        key = self.key
+        if key == NO_KEY:
+            key = 'NO_KEY'
+
+        value = self.value
+        if value == MISSING_VALUE:
+            value = 'MISSING_VALUE'
+
+        return (
+            f"DataRow({self.row_type}, {self.key_repr}, {key}, {value})"
+        )
+
+    def __eq__(self, other):
+        if not isinstance(other, DataRow):
+            return False
+        return (
+            self.row_type == other.row_type
+            and self.key_repr == other.key_repr
+            and self.key == other.key
+            and self.value == other.value
+        )
+
+
+
+class JsonIterator:
+    def __init__(self, container_value: JsonType):
+        self.container = container_value
+        self._generator: Iterator[DataRow] = self.generator(container_value)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> DataRow:
+        return next(self._generator)
+
+    @staticmethod
+    def generator(container_value: JsonType) -> Iterator[DataRow]:
+        raise NotImplementedError("subclass should implement")
+
+
+class ListIterator(JsonIterator):
+
+    @staticmethod
+    def generator(
+            container_value: JsonType,
+    ) -> Iterator[DataRow]:
+        yield DataRow(RowType.START, '', NO_KEY, '[')
+        for i, item in enumerate(container_value):
+            yield DataRow(RowType.ITEM, repr(i), i, item)
+        yield DataRow(RowType.END, '', NO_KEY, ']')
+
+
+class DictIterator(JsonIterator):
+
+    @staticmethod
+    def generator(
+            container_value: JsonType,
+    ) -> Iterator[DataRow]:
+        yield DataRow(RowType.START, '', NO_KEY, '{')
+        for key_repr, key in sorted(
+                ((repr(k), k) for k in container_value.keys()),
+                key=lambda t: t[0],
+        ):
+            yield DataRow(RowType.ITEM, key_repr, key, container_value[key])
+        yield DataRow(RowType.END, '', NO_KEY, '}')
+
+
+class JsonDiff3:
+
+    def run(
+            self,
+            json1: JsonType,
+            json2: JsonType,
+            max_width: int = 80,
+            keys: Optional[Tuple[Any]] = None,
+    ) -> Iterator[str]:
+
+        json1_type = is_json_type(json1)
+        json2_type = is_json_type(json2)
+
+        if not json1_type or not json2_type:
+            raise NotImplementedError("something isn't a list or dict")
+
+        json1_itr = ListIterator(json1)
+        json2_itr = ListIterator(json2)
+
+        for right_side, left_side in self.run_iterators(json1_itr, json2_itr):
+            yield f"{right_side}  {left_side}"
+
+    def run_iterators(
+            self,
+            left_itr: JsonIterator,
+            right_itr: JsonIterator,
+    ) -> Iterator[Tuple[DataRow, DataRow]]:
+        left_itr_stack = []
+        right_itr_stack = []
+
+        right_exhausted = False
+        left_exhausted = False
+
+        first_pass = True
+        c = count(0)
+        while first_pass or (left_itr_stack and right_itr_stack):
+            if next(c) >= 3:
+                break
+
+            if first_pass:
+                first_pass = False
+
+            # print()
+            # print(f"{left_row=}")
+            # print(f"{right_row=}")
+
+            left_row = next(left_itr)
+            right_row = next(right_itr)
+
+            if left_row.row_type == RowType.START:
+                left_itr_stack.append(left_itr)
+                if right_row.row_type == RowType.START:
+                    right_itr_stack.append(right_itr)
+                    yield left_row, right_row
+                else:
+                    raise NotImplementedError()
+            elif left_row.row_type == RowType.ITEM:
+                # if right_row.row_type == RowType.ITEM:
+                #     yield left_row, right_row
+                #     continue
+
+                raise NotImplementedError()
+            elif left_row.row_type == RowType.PLACEHOLDER:
+                raise NotImplementedError()
+            elif left_row.row_type == RowType.END:
+                raise NotImplementedError()
+            else:
+                raise NotImplementedError('WTF?')
+
+        # itr1_has_data = True
+        # itr2_has_data = True
+        # while itr1_has_data and itr2_has_data:
+        #     left_side = None
+        #     right_side = None
+        #
+        #     if itr1_has_data:
+        #         try:
+        #             left_side = next(left_itr)
+        #         except StopIteration:
+        #             itr1_has_data = False
+        #
+        #     if itr2_has_data:
+        #         try:
+        #             right_side = next(right_itr)
+        #         except StopIteration:
+        #             itr2_has_data = False
+        #
+        #     if itr1_has_data and itr2_has_data:
+        #         yield left_side, right_side
+        #     else:
+        #         raise NotImplementedError()
