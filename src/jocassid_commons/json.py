@@ -554,8 +554,7 @@ def is_json_type(value: Any) -> Optional[type]:
 @dataclass
 class DataRow:
     row_type: RowType
-    key_repr: str
-    key: Any
+    key: Union[str, int]  # empty string or -1 indicates no key
     value: Any
 
     def __str__(self):
@@ -571,7 +570,7 @@ class DataRow:
             value = 'MISSING_VALUE'
 
         return (
-            f"DataRow({self.row_type}, {self.key_repr}, {key}, {value})"
+            f"DataRow({self.row_type}, {key}, {value})"
         )
 
     def __eq__(self, other):
@@ -579,14 +578,15 @@ class DataRow:
             return False
         return (
             self.row_type == other.row_type
-            and self.key_repr == other.key_repr
             and self.key == other.key
             and self.value == other.value
         )
 
 
-
 class JsonIterator:
+
+    NO_KEY_VALUE = None
+
     def __init__(self, container_value: JsonType):
         self.container = container_value
         self._generator: Iterator[DataRow] = self.generator(container_value)
@@ -597,36 +597,38 @@ class JsonIterator:
     def __next__(self) -> DataRow:
         return next(self._generator)
 
-    @staticmethod
-    def generator(container_value: JsonType) -> Iterator[DataRow]:
+    def generator(self, container_value: JsonType) -> Iterator[DataRow]:
         raise NotImplementedError("subclass should implement")
 
 
 class ListIterator(JsonIterator):
 
-    @staticmethod
+    NO_KEY_VALUE = -1
+
     def generator(
+            self,
             container_value: JsonType,
     ) -> Iterator[DataRow]:
-        yield DataRow(RowType.START, '', NO_KEY, '[')
+        yield DataRow(RowType.START, self.NO_KEY_VALUE, '[')
         for i, item in enumerate(container_value):
-            yield DataRow(RowType.ITEM, repr(i), i, item)
-        yield DataRow(RowType.END, '', NO_KEY, ']')
+            yield DataRow(RowType.ITEM, i, item)
+        yield DataRow(RowType.END, self.NO_KEY_VALUE, ']')
 
 
 class DictIterator(JsonIterator):
+    """We can safely assume that the keys are non-empty strings.  I'm
+    going to build a json_check cam identify invalid key types"""
 
-    @staticmethod
+    NO_KEY_VALUE = ''
+
     def generator(
+            self,
             container_value: JsonType,
     ) -> Iterator[DataRow]:
-        yield DataRow(RowType.START, '', NO_KEY, '{')
-        for key_repr, key in sorted(
-                ((repr(k), k) for k in container_value.keys()),
-                key=lambda t: t[0],
-        ):
-            yield DataRow(RowType.ITEM, key_repr, key, container_value[key])
-        yield DataRow(RowType.END, '', NO_KEY, '}')
+        yield DataRow(RowType.START, '', '{')
+        for key in sorted(container_value.keys()):
+            yield DataRow(RowType.ITEM, key, container_value[key])
+        yield DataRow(RowType.END, '', '}')
 
 
 class JsonDiff3:
@@ -656,16 +658,25 @@ class JsonDiff3:
             left_itr: JsonIterator,
             right_itr: JsonIterator,
     ) -> Iterator[Tuple[DataRow, DataRow]]:
+
+        # I'm not sure that these stacks will be necessary.  I'm thinking
+        # there will be a yield from recursive call.  Should probably add
+        # depth argument.  if once side is a dict or list and the other
+        # is not, how ddo we feed 2 iterators into this function (maybe
+        # we need a different function that takes 1 iterator
         left_itr_stack = []
         right_itr_stack = []
 
-        right_exhausted = False
         left_exhausted = False
+        right_exhausted = False
+
+        left_row = None
+        right_row = None
 
         first_pass = True
-        c = count(0)
+        c = count(0)  # this is to prevent infinite loop during development
         while first_pass or (left_itr_stack and right_itr_stack):
-            if next(c) >= 3:
+            if next(c) >= 20:
                 break
 
             if first_pass:
@@ -675,8 +686,11 @@ class JsonDiff3:
             # print(f"{left_row=}")
             # print(f"{right_row=}")
 
-            left_row = next(left_itr)
-            right_row = next(right_itr)
+            if not left_exhausted:
+                left_row = next(left_itr)
+
+            if not right_exhausted:
+                right_row = next(right_itr)
 
             if left_row.row_type == RowType.START:
                 left_itr_stack.append(left_itr)
@@ -685,16 +699,34 @@ class JsonDiff3:
                     yield left_row, right_row
                 else:
                     raise NotImplementedError()
+                continue
             elif left_row.row_type == RowType.ITEM:
-                # if right_row.row_type == RowType.ITEM:
-                #     yield left_row, right_row
-                #     continue
-
-                raise NotImplementedError()
+                if right_row.row_type == RowType.ITEM:
+                    yield left_row, right_row
+                    continue
+                if right_row.row_type == RowType.END:
+                    right_exhausted = True
+                    yield (
+                        left_row,
+                        DataRow(RowType.PLACEHOLDER, right_itr.NO_KEY_VALUE, MISSING_VALUE),
+                    )
+                    continue
+                else:
+                    raise NotImplementedError()
             elif left_row.row_type == RowType.PLACEHOLDER:
                 raise NotImplementedError()
             elif left_row.row_type == RowType.END:
-                raise NotImplementedError()
+                if right_row.row_type == RowType.START:
+                    raise NotImplementedError()
+                elif right_row.row_type == RowType.ITEM:
+                    raise NotImplementedError()
+                elif right_row.row_type == RowType.PLACEHOLDER:
+                    raise NotImplementedError()
+                elif right_row.row_type == RowType.END:
+                    right_exhausted = True
+                    yield left_row, right_row
+                else:
+                    raise Exception('WTF?')
             else:
                 raise NotImplementedError('WTF?')
 

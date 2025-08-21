@@ -374,11 +374,11 @@ class TestListAndDictIterators:
         print_uuid_constants()
         assertListsMatch(
             (
-                DataRow(RowType.START, '', NO_KEY, '['),
-                DataRow(RowType.ITEM, '0', 0, 1),
-                DataRow(RowType.ITEM, '1', 1, 4),
-                DataRow(RowType.ITEM, '2', 2, 9),
-                DataRow(RowType.END, '', NO_KEY, ']'),
+                DataRow(RowType.START, -1, '['),
+                DataRow(RowType.ITEM, 0, 1),
+                DataRow(RowType.ITEM, 1, 4),
+                DataRow(RowType.ITEM, 2, 9),
+                DataRow(RowType.END, -1, ']'),
             ),
             ListIterator([1, 4, 9]),
         )
@@ -386,15 +386,15 @@ class TestListAndDictIterators:
     def test_dict_iterator(self):
         assertListsMatch(
             (
-                DataRow(RowType.START, '', NO_KEY, '{'),
-                DataRow(RowType.ITEM, "'foo'", 'foo', 'bar'),
-                DataRow(RowType.ITEM, '3', 3, 4),
-                DataRow(RowType.ITEM, 'True', True, False),
-                DataRow(RowType.END, '', NO_KEY, '}'),
+                DataRow(RowType.START, '', '{'),
+                DataRow(RowType.ITEM, 'foo', 'bar'),
+                DataRow(RowType.ITEM, 'go', True),
+                DataRow(RowType.ITEM, 'hotel', 4),
+                DataRow(RowType.END, '', '}'),
             ),
             DictIterator({
-                True: False,
-                3: 4,
+                'go': True,
+                'hotel': 4,
                 'foo': 'bar',
             }),
         )
@@ -414,24 +414,24 @@ class TestJsonDiff3:
         assertListsMatch(
             [
                 (
-                    DataRow(RowType.START, '', NO_KEY, '['),
-                    DataRow(RowType.START, '', NO_KEY, '['),
+                    DataRow(RowType.START, -1, '['),
+                    DataRow(RowType.START, -1, '['),
                 ),
                 (
-                    DataRow(RowType.ITEM, '0', 0, 1),
-                    DataRow(RowType.ITEM, '0', 0, 1),
+                    DataRow(RowType.ITEM, 0, 1),
+                    DataRow(RowType.ITEM, 0, 1),
                 ),
                 (
-                    DataRow(RowType.ITEM, '1', 1, 2),
-                    DataRow(RowType.ITEM, '1', 1, 4),
+                    DataRow(RowType.ITEM, 1, 2),
+                    DataRow(RowType.ITEM, 1, 4),
                 ),
                 (
-                    DataRow(RowType.ITEM, '2', 2, 3),
-                    DataRow(RowType.PLACEHOLDER, '', NO_KEY, MISSING_VALUE),
+                    DataRow(RowType.ITEM, 2, 3),
+                    DataRow(RowType.PLACEHOLDER, -1, MISSING_VALUE),
                 ),
                 (
-                    DataRow(RowType.END, '', NO_KEY, ']'),
-                    DataRow(RowType.END, '', NO_KEY, ']'),
+                    DataRow(RowType.END, -1, ']'),
+                    DataRow(RowType.END, -1, ']'),
                 ),
             ],
             JsonDiff3().run_iterators(itr1, itr2)
