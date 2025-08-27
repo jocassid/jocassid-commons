@@ -12,7 +12,6 @@ from jocassid_commons.itertools import merge_queue_factory
 
 
 MISSING_VALUE = uuid4()
-NO_KEY = uuid4()
 
 
 MINIMUM_COLUMN_WIDTH = 5
@@ -23,6 +22,11 @@ class RowType(Enum):
     ITEM = 2
     END = 3
     PLACEHOLDER = 4
+
+
+class Side(Enum):
+    LEFT = 5
+    RIGHT = 6
 
 
 # PY3.11: Adds StrEnum
@@ -556,21 +560,20 @@ class DataRow:
     row_type: RowType
     key: Union[str, int]  # empty string or -1 indicates no key
     value: Any
+    depth: 0
 
     def __str__(self):
         return self.__repr__()
 
     def __repr__(self):
         key = self.key
-        if key == NO_KEY:
-            key = 'NO_KEY'
 
         value = self.value
         if value == MISSING_VALUE:
             value = 'MISSING_VALUE'
 
         return (
-            f"DataRow({self.row_type}, {key}, {value})"
+            f"DataRow({self.row_type}, {key!r}, {value!r}, {self.depth})"
         )
 
     def __eq__(self, other):
@@ -580,6 +583,7 @@ class DataRow:
             self.row_type == other.row_type
             and self.key == other.key
             and self.value == other.value
+            and self.depth == other.depth
         )
 
 
@@ -587,9 +591,10 @@ class JsonIterator:
 
     NO_KEY_VALUE = None
 
-    def __init__(self, container_value: JsonType):
+    def __init__(self, container_value: JsonType, depth: int = 0):
         self.container = container_value
         self._generator: Iterator[DataRow] = self.generator(container_value)
+        self.depth = depth
 
     def __iter__(self):
         return self
@@ -600,6 +605,17 @@ class JsonIterator:
     def generator(self, container_value: JsonType) -> Iterator[DataRow]:
         raise NotImplementedError("subclass should implement")
 
+    def placeholder(self, next_level_down: bool = False):
+        depth = self.depth + 1
+        if next_level_down:
+            depth += 1
+        return DataRow(
+            RowType.PLACEHOLDER,
+            self.NO_KEY_VALUE,
+            MISSING_VALUE,
+            depth,
+        )
+
 
 class ListIterator(JsonIterator):
 
@@ -609,10 +625,10 @@ class ListIterator(JsonIterator):
             self,
             container_value: JsonType,
     ) -> Iterator[DataRow]:
-        yield DataRow(RowType.START, self.NO_KEY_VALUE, '[')
+        yield DataRow(RowType.START, self.NO_KEY_VALUE, '[', self.depth)
         for i, item in enumerate(container_value):
-            yield DataRow(RowType.ITEM, i, item)
-        yield DataRow(RowType.END, self.NO_KEY_VALUE, ']')
+            yield DataRow(RowType.ITEM, i, item, self.depth + 1)
+        yield DataRow(RowType.END, self.NO_KEY_VALUE, ']', self.depth)
 
 
 class DictIterator(JsonIterator):
@@ -625,10 +641,21 @@ class DictIterator(JsonIterator):
             self,
             container_value: JsonType,
     ) -> Iterator[DataRow]:
-        yield DataRow(RowType.START, '', '{')
+        yield DataRow(RowType.START, self.NO_KEY_VALUE, '{', self.depth)
         for key in sorted(container_value.keys()):
-            yield DataRow(RowType.ITEM, key, container_value[key])
-        yield DataRow(RowType.END, '', '}')
+            yield DataRow(RowType.ITEM, key, container_value[key], self.depth + 1)
+        yield DataRow(RowType.END, self.NO_KEY_VALUE, '}', self.depth)
+
+
+def get_iterator(container_value: JsonType, depth: int = 0) -> JsonIterator:
+    if isinstance(container_value, list):
+        return ListIterator(container_value, depth)
+    if isinstance(container_value, dict):
+        return DictIterator(container_value, depth)
+    raise TypeError(
+        f"Received {type(container_value)} {container_value!r} "
+        f"instead of list or dict"
+    )
 
 
 class JsonDiff3:
@@ -657,98 +684,139 @@ class JsonDiff3:
             self,
             left_itr: JsonIterator,
             right_itr: JsonIterator,
+            depth: int = 0,
     ) -> Iterator[Tuple[DataRow, DataRow]]:
 
-        # I'm not sure that these stacks will be necessary.  I'm thinking
-        # there will be a yield from recursive call.  Should probably add
-        # depth argument.  if once side is a dict or list and the other
-        # is not, how ddo we feed 2 iterators into this function (maybe
-        # we need a different function that takes 1 iterator
-        left_itr_stack = []
-        right_itr_stack = []
-
-        left_exhausted = False
-        right_exhausted = False
+        get_next_left = True
+        get_next_right = True
 
         left_row = None
         right_row = None
 
-        first_pass = True
+        is_outer_left: bool = True
+        is_outer_right: bool = True
+
         c = count(0)  # this is to prevent infinite loop during development
-        while first_pass or (left_itr_stack and right_itr_stack):
-            if next(c) >= 20:
-                break
+        while get_next_left or get_next_right or next(c) < 20:
 
-            if first_pass:
-                first_pass = False
-
-            # print()
-            # print(f"{left_row=}")
-            # print(f"{right_row=}")
-
-            if not left_exhausted:
+            if get_next_left:
                 left_row = next(left_itr)
 
-            if not right_exhausted:
+            if get_next_right:
                 right_row = next(right_itr)
 
+            print()
+            print(f"{left_row=}")
+            print(f"{right_row=}")
+
             if left_row.row_type == RowType.START:
-                left_itr_stack.append(left_itr)
                 if right_row.row_type == RowType.START:
-                    right_itr_stack.append(right_itr)
                     yield left_row, right_row
+                    get_next_left, get_next_right = True, True
+
+                    if is_outer_right:
+                        is_outer_right = False
                 else:
                     raise NotImplementedError()
+
+                if is_outer_left:
+                    is_outer_left = False
                 continue
-            elif left_row.row_type == RowType.ITEM:
+
+            if left_row.row_type == RowType.ITEM:
                 if right_row.row_type == RowType.ITEM:
-                    yield left_row, right_row
+                    left_key = left_row.key
+                    right_key = right_row.key
+
+                    left_json_type = is_json_type(left_row.value)
+                    right_json_type = is_json_type(right_row.value)
+
+                    if left_key < right_key:
+                        if left_json_type:
+                            raise NotImplementedError()
+                        else:
+                            yield left_row, right_itr.placeholder()
+                            get_next_left, get_next_right = True, False
+                    elif left_key == right_key:
+                        if not left_json_type and not right_json_type:
+                            yield left_row, right_row
+                            get_next_left, get_next_right = True, True
+                        elif not left_json_type and right_json_type:
+                            raise NotImplementedError()
+                        elif left_json_type and not right_json_type:
+                            depth_new = depth + 1
+                            yield from self.run_iterator(
+                                get_iterator(left_row.value, depth=depth_new),
+                                itr_side=Side.LEFT,
+                                other_side_row=right_row,
+                                placeholder_row=right_itr.placeholder(
+                                    next_level_down=True,
+                                ),
+                                depth=depth_new,
+                            )
+                        else:
+                            raise NotImplementedError()
+                    else:
+                        if right_json_type:
+                            raise NotImplementedError()
+                        else:
+                            yield left_itr.placeholder(), right_row
+                            get_next_left, get_next_right = False, True
                     continue
                 if right_row.row_type == RowType.END:
-                    right_exhausted = True
-                    yield (
-                        left_row,
-                        DataRow(RowType.PLACEHOLDER, right_itr.NO_KEY_VALUE, MISSING_VALUE),
-                    )
+                    yield left_row, right_itr.placeholder()
+                    get_next_left, get_next_right = True, False
                     continue
                 else:
                     raise NotImplementedError()
-            elif left_row.row_type == RowType.PLACEHOLDER:
-                raise NotImplementedError()
-            elif left_row.row_type == RowType.END:
-                if right_row.row_type == RowType.START:
-                    raise NotImplementedError()
-                elif right_row.row_type == RowType.ITEM:
-                    raise NotImplementedError()
-                elif right_row.row_type == RowType.PLACEHOLDER:
-                    raise NotImplementedError()
-                elif right_row.row_type == RowType.END:
-                    right_exhausted = True
-                    yield left_row, right_row
-                else:
-                    raise Exception('WTF?')
-            else:
-                raise NotImplementedError('WTF?')
 
-        # itr1_has_data = True
-        # itr2_has_data = True
-        # while itr1_has_data and itr2_has_data:
-        #     left_side = None
-        #     right_side = None
-        #
-        #     if itr1_has_data:
-        #         try:
-        #             left_side = next(left_itr)
-        #         except StopIteration:
-        #             itr1_has_data = False
-        #
-        #     if itr2_has_data:
-        #         try:
-        #             right_side = next(right_itr)
-        #         except StopIteration:
-        #             itr2_has_data = False
-        #
-        #     if itr1_has_data and itr2_has_data:
-        #         yield left_side, right_side
-        #     else:
-        #         raise NotImplementedError()
+            if left_row.row_type == RowType.PLACEHOLDER:
+                raise NotImplementedError()
+
+            # left_row.row_type == RowType.END
+            if right_row.row_type == RowType.START:
+                raise NotImplementedError()
+            if right_row.row_type == RowType.ITEM:
+                yield left_itr.placeholder(), right_row
+                get_next_left, get_next_right = False, True
+                continue
+            elif right_row.row_type == RowType.PLACEHOLDER:
+                raise NotImplementedError()
+            else:
+                # right_row.row_type == RowType.END
+                # no point in setting get_next_left and get_next_right since
+                # we're exiting the loop
+                yield left_row, right_row
+                break
+
+    def run_iterator(
+            self,
+            itr: JsonIterator,
+            itr_side: Side,
+            other_side_row: DataRow,
+            placeholder_row: DataRow,
+            depth: int
+    ):
+        for i, itr_row in enumerate(itr):
+            print()
+            print(f"{itr_row=} {itr_side=}")
+            if i == 0:
+                if itr_side == Side.LEFT:
+                    yield itr_row, other_side_row
+                else:
+                    yield other_side_row, itr_row
+                continue
+
+            if itr_side == Side.LEFT:
+                yield itr_row, placeholder_row
+            else:
+                yield placeholder_row, itr_row
+
+    @staticmethod
+    def build_placeholder_row(itr):
+        return DataRow(
+            RowType.PLACEHOLDER,
+            itr.NO_KEY_VALUE,
+            MISSING_VALUE,
+            itr.depth + 1,
+        )

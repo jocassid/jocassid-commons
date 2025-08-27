@@ -1,6 +1,7 @@
 
 from itertools import zip_longest
 from re import compile as re_compile
+from typing import Any, Iterator
 
 from pytest import mark, raises
 
@@ -15,7 +16,6 @@ from jocassid_commons.json import (
     locate_key,
     MINIMUM_COLUMN_WIDTH,
     MISSING_VALUE,
-    NO_KEY,
     RowType,
 )
 
@@ -356,16 +356,21 @@ def test_locate_key():
     #     assert actual == expected
 
 
-def assertListsMatch(list1, list2):
+def assertListsMatch(list1, list2, multi_line: bool = False):
     index = -1
     for val1, val2 in zip_longest(list1, list2, fillvalue=MISSING_VALUE):
         index += 1
-        assert val1 == val2, f"{index=} {val1!r} != {val2!r}"
+        val1_repr = 'MISSING_VALUE' if val1 is MISSING_VALUE else repr(val1)
+        val2_repr = 'MISSING_VALUE' if val2 is MISSING_VALUE else repr(val2)
+        if multi_line:
+            message = f"\n{index=}\n  {val1_repr}\n  {val2_repr}"
+        else:
+            message = f"{index=} {val1_repr} != {val2_repr}"
+        assert val1 == val2, message
 
 
 def print_uuid_constants():
     print(f"{MISSING_VALUE=}")
-    print(f"{NO_KEY=}")
 
 
 class TestListAndDictIterators:
@@ -374,11 +379,11 @@ class TestListAndDictIterators:
         print_uuid_constants()
         assertListsMatch(
             (
-                DataRow(RowType.START, -1, '['),
-                DataRow(RowType.ITEM, 0, 1),
-                DataRow(RowType.ITEM, 1, 4),
-                DataRow(RowType.ITEM, 2, 9),
-                DataRow(RowType.END, -1, ']'),
+                DataRow(RowType.START, -1, '[', 0),
+                DataRow(RowType.ITEM, 0, 1, 1),
+                DataRow(RowType.ITEM, 1, 4, 1),
+                DataRow(RowType.ITEM, 2, 9, 1),
+                DataRow(RowType.END, -1, ']', 0),
             ),
             ListIterator([1, 4, 9]),
         )
@@ -386,11 +391,11 @@ class TestListAndDictIterators:
     def test_dict_iterator(self):
         assertListsMatch(
             (
-                DataRow(RowType.START, '', '{'),
-                DataRow(RowType.ITEM, 'foo', 'bar'),
-                DataRow(RowType.ITEM, 'go', True),
-                DataRow(RowType.ITEM, 'hotel', 4),
-                DataRow(RowType.END, '', '}'),
+                DataRow(RowType.START, '', '{', 0),
+                DataRow(RowType.ITEM, 'foo', 'bar', 1),
+                DataRow(RowType.ITEM, 'go', True, 1),
+                DataRow(RowType.ITEM, 'hotel', 4, 1),
+                DataRow(RowType.END, '', '}', 0),
             ),
             DictIterator({
                 'go': True,
@@ -400,39 +405,185 @@ class TestListAndDictIterators:
         )
 
 
+def get_from_generator(generator: Iterator[Any], count: int = 1) -> Iterator[Any]:
+    for _ in range(count):
+        yield next(generator)
+
+
 class TestJsonDiff3:
 
-    def test_run_iterators(self):
+    def test_run_iterators__2_lists_of_ints_first_longer(self):
         print_uuid_constants()
-
-        list1 = [1, 2, 3]
-        list2 = [1, 4]
-
-        itr1 = ListIterator(list1)
-        itr2 = ListIterator(list2)
 
         assertListsMatch(
             [
                 (
-                    DataRow(RowType.START, -1, '['),
-                    DataRow(RowType.START, -1, '['),
+                    DataRow(RowType.START, -1, '[', 0),
+                    DataRow(RowType.START, -1, '[', 0),
                 ),
                 (
-                    DataRow(RowType.ITEM, 0, 1),
-                    DataRow(RowType.ITEM, 0, 1),
+                    DataRow(RowType.ITEM, 0, 1, 1),
+                    DataRow(RowType.ITEM, 0, 1, 1),
                 ),
                 (
-                    DataRow(RowType.ITEM, 1, 2),
-                    DataRow(RowType.ITEM, 1, 4),
+                    DataRow(RowType.ITEM, 1, 2, 1),
+                    DataRow(RowType.ITEM, 1, 4, 1),
                 ),
                 (
-                    DataRow(RowType.ITEM, 2, 3),
-                    DataRow(RowType.PLACEHOLDER, -1, MISSING_VALUE),
+                    DataRow(RowType.ITEM, 2, 3, 1),
+                    DataRow(RowType.PLACEHOLDER, -1, MISSING_VALUE, 1),
                 ),
                 (
-                    DataRow(RowType.END, -1, ']'),
-                    DataRow(RowType.END, -1, ']'),
+                    DataRow(RowType.END, -1, ']', 0),
+                    DataRow(RowType.END, -1, ']', 0),
                 ),
             ],
-            JsonDiff3().run_iterators(itr1, itr2)
+            list(
+                get_from_generator(
+                    JsonDiff3().run_iterators(
+                        ListIterator([1, 2, 3]),
+                        ListIterator([1, 4]),
+                    ),
+                    5,
+                )
+            )
+        )
+
+    def test_run_iterators__2_lists_of_ints_second_longer(self):
+        print_uuid_constants()
+
+        assertListsMatch(
+            [
+                (
+                    DataRow(RowType.START, -1, '[', 0),
+                    DataRow(RowType.START, -1, '[', 0),
+                ),
+                (
+                    DataRow(RowType.ITEM, 0, 2, 1),
+                    DataRow(RowType.ITEM, 0, 2, 1),
+                ),
+                (
+                    DataRow(RowType.ITEM, 1, 8, 1),
+                    DataRow(RowType.ITEM, 1, 4, 1),
+                ),
+                (
+                    DataRow(RowType.PLACEHOLDER, -1, MISSING_VALUE, 1),
+                    DataRow(RowType.ITEM, 2, 6, 1),
+                ),
+                (
+                    DataRow(RowType.END, -1, ']', 0),
+                    DataRow(RowType.END, -1, ']', 0),
+                ),
+            ],
+            list(
+                JsonDiff3().run_iterators(
+                    ListIterator([2, 8]),
+                    ListIterator([2, 4, 6]),
+                )
+            )
+        )
+
+    def test_run_iterators__lists_of_equal_length(self):
+        print_uuid_constants()
+
+        assertListsMatch(
+            [
+                (
+                    DataRow(RowType.START, -1, '[', 0),
+                    DataRow(RowType.START, -1, '[', 0),
+                ),
+                (
+                    DataRow(RowType.ITEM, 0, 0, 1),
+                    DataRow(RowType.ITEM, 0, 2, 1),
+                ),
+                (
+                    DataRow(RowType.ITEM, 1, 1, 1),
+                    DataRow(RowType.ITEM, 1, 3, 1),
+                ),
+                (
+                    DataRow(RowType.END, -1, ']', 0),
+                    DataRow(RowType.END, -1, ']', 0),
+                ),
+            ],
+            list(
+                JsonDiff3().run_iterators(
+                    ListIterator([0, 1]),
+                    ListIterator([2, 3]),
+                )
+            )
+        )
+
+    def test_run_iterators__2_dicts(self):
+
+        assertListsMatch(
+            [
+                (
+                    DataRow(RowType.START, '', '{', 0),
+                    DataRow(RowType.START, '', '{', 0),
+                ),
+                (
+                    DataRow(RowType.ITEM, 'a', 1, 1),
+                    DataRow(RowType.ITEM, 'a', 4, 1),
+                ),
+                (
+                    DataRow(RowType.ITEM, 'b', 2, 1),
+                    DataRow(RowType.PLACEHOLDER, '', MISSING_VALUE, 1),
+                ),
+                (
+                    DataRow(RowType.ITEM, 'c', 3, 1),
+                    DataRow(RowType.PLACEHOLDER, '', MISSING_VALUE, 1),
+                ),
+                (
+                    DataRow(RowType.PLACEHOLDER, '', MISSING_VALUE, 1),
+                    DataRow(RowType.ITEM, 'd', 5, 1),
+                ),
+                (
+                    DataRow(RowType.END, '', '}', 0),
+                    DataRow(RowType.END, '', '}', 0),
+                ),
+            ],
+            list(
+                JsonDiff3().run_iterators(
+                    DictIterator({'a': 1, 'b': 2, 'c': 3}),
+                    DictIterator({'a': 4, 'd': 5}),
+                )
+            ),
+            multi_line=True,
+        )
+
+    def test_run_iterators__nested_list(self):
+        assertListsMatch(
+            [
+                (
+                    DataRow(RowType.START, -1, '[', 0),
+                    DataRow(RowType.START, -1, '[', 0),
+                ),
+                (
+                    DataRow(RowType.ITEM, 0, 1, 1),
+                    DataRow(RowType.ITEM, 0, 2, 1),
+                ),
+                (
+                    DataRow(RowType.START, -1, '[', 1),
+                    DataRow(RowType.ITEM, 1, 4, 1),
+                ),
+                (
+                    DataRow(RowType.ITEM, 0, 3, 2),
+                    DataRow(RowType.PLACEHOLDER, -1, MISSING_VALUE, 2),
+                ),
+                (
+                    DataRow(RowType.ITEM, 1, 5, 2),
+                    DataRow(RowType.PLACEHOLDER, -1, MISSING_VALUE, 2)
+                ),
+                (
+                    DataRow(RowType.END, -1, ']', 1),
+                    DataRow(RowType.PLACEHOLDER, -1, MISSING_VALUE, 1)
+                ),
+            ],
+            list(
+                JsonDiff3().run_iterators(
+                    ListIterator([1, [3, 5], 7]),
+                    ListIterator([2, 4, 6, 8]),
+                )
+            ),
+            multi_line=True,
         )
